@@ -1,0 +1,25 @@
+export const COLORS = {
+  primaryGreen: '#16A34A',
+  darkGreen: '#15803D',
+  lightGreen: '#DCFCE7',
+  gradientStart: '#22C55E',
+  gradientEnd: '#16A34A',
+  background: '#F8FAFC',
+  card: '#FFFFFF',
+  primaryText: '#0F172A',
+  secondaryText: '#64748B',
+  border: '#E2E8F0',
+  white: '#FFFFFF',
+  transparent: 'transparent',
+  shadow: '#0F172A',
+  googleBlue: '#4285F4',
+  googleRed: '#EA4335',
+  googleYellow: '#FBBC05',
+  googleGreen: '#34A853',
+  softGreenBackground: '#F0FDF4',
+  inputBackground: '#FFFFFF',
+  disabledBackground: '#E2E8F0',
+  disabledText: '#94A3B8',
+} as const;
+
+export type ColorToken = keyof typeof COLORS;
