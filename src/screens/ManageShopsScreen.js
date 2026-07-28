@@ -21,6 +21,7 @@ export const ManageShopsScreen = () => {
     }
   });
 
+
   useEffect(() => {
     if (shops) {
       setData(shops);
@@ -101,10 +102,10 @@ export const ManageShopsScreen = () => {
             <ChevronLeft color={theme.colors.text} size={28} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Manage Shops</Text>
-          <View style={{width: 28}} />
+          <View style={{ width: 28 }} />
         </View>
         <Text style={styles.instruction}>Drag the grip icon to reorder your saved shops.</Text>
-        
+
         <DraggableFlatList
           data={data}
           onDragEnd={handleDragEnd}
