@@ -1,7 +1,7 @@
 import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Toast from 'react-native-toast-message';
-import { getMockSavedShops, removeMockSavedShop, reorderMockSavedShops, getMockShops, getMockShop, getMockProducts, getMockCarts, updateMockCart, getMockAddresses, addMockAddress, updateMockAddress, deleteMockAddress, getMockOrders, addMockOrder, getMockUdharLedger, getMockWishlist, toggleMockWishlist } from './mockData';
+import { getMockSavedShops, removeMockSavedShop, addMockSavedShop, reorderMockSavedShops, getMockShops, getMockShop, getMockProducts, getMockCarts, updateMockCart, updateMockCartNote, getMockAddresses, addMockAddress, updateMockAddress, deleteMockAddress, getMockOrders, addMockOrder, getMockUdharLedger, getMockWishlist, toggleMockWishlist } from './mockData';
 
 // Use the dev tunnel URL provided by the user
 const BASE_URL = 'https://8d9tvlgb-5000.inc1.devtunnels.ms/api';
@@ -94,7 +94,11 @@ axiosClient.get = async (url, config) => {
   const shopProductsMatch = url.match(/^\/shops\/(\d+)\/products/);
   if (shopProductsMatch) {
     const shopId = shopProductsMatch[1];
-    return { data: { products: getMockProducts(shopId) } };
+    const categoryMatch = url.match(/[?&]category=([^&]+)/);
+    const searchMatch = url.match(/[?&]search=([^&]+)/);
+    const category = categoryMatch ? decodeURIComponent(categoryMatch[1]) : null;
+    const search = searchMatch ? decodeURIComponent(searchMatch[1]) : null;
+    return { data: { products: getMockProducts(shopId, category, search) } };
   }
   // Mock /shops/:shopId
   const shopMatch = url.match(/^\/shops\/(\d+)/);
@@ -104,7 +108,13 @@ axiosClient.get = async (url, config) => {
   }
   // Mock /auth/me
   if (url === '/auth/me') {
-    return { data: { user: { id: 1, name: 'Mock User', phone: '+919999999999' } } };
+    const storedUserJson = await AsyncStorage.getItem('userData');
+    const storedUser = storedUserJson ? JSON.parse(storedUserJson) : null;
+    return { 
+      data: { 
+        user: storedUser || { id: 1, name: 'Mock User', phone: '+919999999999', email: 'rahul.s@localneighborhood.com' } 
+      } 
+    };
   }
   // Mock /cart
   if (url === '/cart' || url.startsWith('/cart?')) {
@@ -119,14 +129,21 @@ axiosClient.get = async (url, config) => {
     return { data: { orders: getMockOrders() } };
   }
   // Mock /orders/:id
-  const orderMatch = url.match(/^\/orders\/(\d+)$/);
-  if (orderMatch) {
+  const orderMatch = url.match(/^\/orders\/([^\/]+)$/);
+  if (orderMatch && !url.includes('/reorder') && !url.includes('/payment')) {
     const orderId = orderMatch[1];
-    const order = getMockOrders().find(o => o.id == orderId);
+    const orders = getMockOrders();
+    const order = orders.find(o => 
+      o.id == orderId || 
+      o.orderNumber == orderId ||
+      o.order_number == orderId || 
+      o.orderNumber == `#${orderId}` || 
+      o.orderNumber == `LS-${orderId}` ||
+      String(orderId).includes(String(o.id))
+    ) || orders[0];
+    
     if (order) {
       return { data: order };
-    } else {
-      return Promise.reject({ response: { status: 404, data: { message: 'Order not found' } } });
     }
   }
   
@@ -144,10 +161,15 @@ axiosClient.get = async (url, config) => {
         acc[entry.shop.id] = {
           shop: entry.shop,
           total_pending: 0,
+          total_paid: 0,
           transactions: []
         };
       }
-      acc[entry.shop.id].total_pending += entry.amount;
+      if (entry.status === 'pending') {
+        acc[entry.shop.id].total_pending += entry.amount;
+      } else {
+        acc[entry.shop.id].total_paid += entry.amount;
+      }
       acc[entry.shop.id].transactions.push(entry);
       return acc;
     }, {});
@@ -155,7 +177,8 @@ axiosClient.get = async (url, config) => {
     return { 
       data: { 
         khata: Object.values(grouped),
-        total_overall: ledger.reduce((sum, entry) => sum + entry.amount, 0)
+        total_overall_pending: ledger.filter(e => e.status === 'pending').reduce((sum, entry) => sum + entry.amount, 0),
+        total_overall_paid: ledger.filter(e => e.status === 'paid').reduce((sum, entry) => sum + entry.amount, 0)
       } 
     };
   }
@@ -183,7 +206,7 @@ axiosClient.post = async (url, data, config) => {
   const cartMatch = url.match(/^\/cart\/(\d+)\/items/);
   if (cartMatch) {
     const shopId = cartMatch[1];
-    updateMockCart(shopId, data.productId, data.quantity);
+    updateMockCart(shopId, data.productId, { quantity: data.quantity, unit: data.unit, price: data.price, note: data.note });
     
     if (data.quantity > 0) {
       Toast.show({
@@ -197,13 +220,20 @@ axiosClient.post = async (url, data, config) => {
     return { data: { success: true } };
   }
 
+  const cartNoteMatch = url.match(/^\/cart\/(\d+)\/note/);
+  if (cartNoteMatch) {
+    const shopId = cartNoteMatch[1];
+    updateMockCartNote(shopId, data.note);
+    return { data: { success: true } };
+  }
+
   if (url === '/addresses') {
     const newAddress = addMockAddress(data);
     return { data: { success: true, address: newAddress } };
   }
 
   if (url === '/orders') {
-    const newOrder = addMockOrder(data.shopId, data.addressId, data.payment_method);
+    const newOrder = addMockOrder(data.shopId, data.addressId, data.payment_method, data.note);
     if (!newOrder) {
       return { data: { success: false, message: 'Cart empty or invalid' } };
     }
@@ -229,6 +259,14 @@ axiosClient.post = async (url, data, config) => {
       position: 'top',
       visibilityTime: 2500,
     });
+    return { data: { success: true } };
+  }
+
+  if (url === '/my-shops' || url.startsWith('/my-shops')) {
+    const sId = data?.shopId || data?.shop_id || data?.id;
+    if (sId) {
+      addMockSavedShop(sId);
+    }
     return { data: { success: true } };
   }
   

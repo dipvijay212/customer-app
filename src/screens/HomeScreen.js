@@ -1,18 +1,39 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { View, Text, StyleSheet, SafeAreaView, TouchableOpacity, ActivityIndicator, RefreshControl, FlatList, TextInput, Image, Platform, StatusBar, ScrollView } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axiosClient from '../api/axiosClient';
-import { getCurrentLocation } from '../utils/location';
 import ShopCard from '../components/ShopCard';
 import ProductCard from '../components/ProductCard';
 import { theme } from '../theme';
 import { useNavigation } from '@react-navigation/native';
-import { Menu, Heart, MapPin, Search, ChevronDown, ChevronRight } from 'lucide-react-native';
+import { MapPin, Search, ChevronDown, ChevronRight, XCircle, Bell, QrCode, Check, Store, Star, Clock } from 'lucide-react-native';
 import Animated, { SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { ensureLocationReady } from '../utils/locationHelper';
+import Toast from 'react-native-toast-message';
+import { getCartItemTotal } from '../utils/cartPricing';
+import { useTranslation } from '../utils/translations';
+
+const CATEGORY_IMAGE_MAP = {
+  All: 'https://images.unsplash.com/photo-1604719312566-8912e9227c6a?w=300&q=80',
+  Groceries: 'https://images.unsplash.com/photo-1578916171728-46686eac8d58?w=300&q=80',
+  Grocery: 'https://images.unsplash.com/photo-1578916171728-46686eac8d58?w=300&q=80',
+  Vegetables: 'https://images.unsplash.com/photo-1540420773420-3366772f4999?w=300&q=80',
+  Fruits: 'https://images.unsplash.com/photo-1610832958506-aa56368176cf?w=300&q=80',
+  'Dairy & Eggs': 'https://images.unsplash.com/photo-1628088062854-d1870b4553da?w=300&q=80',
+  Dairy: 'https://images.unsplash.com/photo-1628088062854-d1870b4553da?w=300&q=80',
+  Household: 'https://images.unsplash.com/photo-1583947215259-38e31be8751f?w=300&q=80',
+  Electronics: 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=300&q=80',
+  Pharmacy: 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=300&q=80',
+  Beverages: 'https://images.unsplash.com/photo-1622483767028-3f66f32aef97?w=300&q=80',
+  Bakery: 'https://images.unsplash.com/photo-1509440159596-0249088772ff?w=300&q=80',
+};
+const DEFAULT_CATEGORY_IMAGE = 'https://images.unsplash.com/photo-1578916171728-46686eac8d58?w=300&q=80';
+
 export const HomeScreen = () => {
   const navigation = useNavigation();
   const queryClient = useQueryClient();
+  const t = useTranslation();
+  
   const { data: location, isLoading: loadingLocation, isError: locationError, refetch: refetchLocation } = useQuery({
     queryKey: ['userLocation'],
     queryFn: async () => {
@@ -37,7 +58,7 @@ export const HomeScreen = () => {
       const res = await axiosClient.get('/my-shops');
       return res.data.savedShops;
     },
-    staleTime: 1000 * 60 * 5, // 5 minutes
+    staleTime: 1000 * 60 * 5,
   });
 
   const { data: nearbyShops, isLoading: loadingNearby, refetch: refetchNearby } = useQuery({
@@ -70,38 +91,21 @@ export const HomeScreen = () => {
     }
   });
 
-  const { data: wishlistData } = useQuery({
-    queryKey: ['wishlist'],
+  const { data: addresses } = useQuery({
+    queryKey: ['addresses'],
     queryFn: async () => {
-      const res = await axiosClient.get('/wishlist');
-      return res.data.wishlist;
+      const res = await axiosClient.get('/addresses');
+      return res.data.addresses;
     }
   });
 
-  const toggleWishlistMutation = useMutation({
-    mutationFn: async ({ productId, isWishlisted }) => {
-      if (isWishlisted) {
-        await axiosClient.delete(`/wishlist/${productId}`);
-      } else {
-        await axiosClient.post('/wishlist', { productId });
-      }
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries(['wishlist']);
-    }
-  });
-
-  const updateCartMutation = useMutation({
-    mutationFn: async ({ shopId, productId, quantity }) => {
-      await axiosClient.post(`/cart/${shopId}/items`, { productId, quantity });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries(['cart']);
-    }
-  });
+  const selectedAddress = addresses?.find(a => a.is_default) || addresses?.[0];
+  const locationDisplayText = selectedAddress 
+    ? `${selectedAddress.label ? selectedAddress.label + ' - ' : ''}${selectedAddress.line2 || selectedAddress.line1}` 
+    : 'Downtown, Sector 5';
 
   const globalCartCount = Array.isArray(cartData) ? cartData.reduce((acc, cart) => acc + (cart.items?.reduce((sum, item) => sum + item.quantity, 0) || 0), 0) : 0;
-  const globalCartTotal = Array.isArray(cartData) ? cartData.reduce((acc, cart) => acc + (cart.items?.reduce((sum, item) => sum + (item.quantity * parseFloat(item.price)), 0) || 0), 0) : 0;
+  const globalCartTotal = Array.isArray(cartData) ? cartData.reduce((acc, cart) => acc + (cart.items?.reduce((sum, item) => sum + getCartItemTotal(item), 0) || 0), 0) : 0;
 
   const previousCountRef = useRef(globalCartCount);
   useEffect(() => {
@@ -124,79 +128,81 @@ export const HomeScreen = () => {
     navigation.navigate('ShopStorefront', { id });
   };
 
-  const nearbyCategories = ['All', ...new Set(nearbyShops?.map(s => s.category).filter(Boolean))].slice(0, 4);
+  const nearbyCategories = ['All', ...new Set(nearbyShops?.map(s => s.category).filter(Boolean))];
   const filteredNearbyShops = selectedCategory === 'All' 
-    ? nearbyShops?.slice(0, 5)
-    : nearbyShops?.filter(s => s.category === selectedCategory).slice(0, 5);
+    ? nearbyShops
+    : nearbyShops?.filter(s => s.category === selectedCategory);
+
+  const addToCartMutation = useMutation({
+    mutationFn: async ({ shopId, productId, quantity, unit, price, note }) => {
+      const res = await axiosClient.post(`/cart/${shopId}/items`, { productId, quantity, unit, price, note });
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries(['cart']);
+    }
+  });
+
+  const getCartItemsForProduct = (product) => {
+    if (!cartData || !Array.isArray(cartData)) return [];
+    const shopCart = cartData.find(c => c.shop?.id == product.shop_id);
+    if (!shopCart) return [];
+    return shopCart.items?.filter(i => i.product_id == product.id) || [];
+  };
+
+  const combinedShopsMap = useMemo(() => {
+    const map = new Map();
+    [...(nearbyShops || []), ...(myShops || [])].forEach(s => {
+      if (s && s.id && !map.has(s.id)) {
+        map.set(s.id, s);
+      }
+    });
+    return map;
+  }, [nearbyShops, myShops]);
+
+  const allShopsList = useMemo(() => Array.from(combinedShopsMap.values()), [combinedShopsMap]);
 
   const isSearching = searchQuery.trim().length > 0;
   
-  let listData = [{ key: 'myShops' }, { key: 'nearbyShops' }, { key: 'nearbyProducts' }];
+  let listData = [{ key: 'myShops' }, { key: 'nearbyShops' }];
   
   if (isSearching) {
-    const query = searchQuery.toLowerCase();
-    
-    // 1. Find matching shops by name or category
-    const matchingShops = nearbyShops?.filter(s => 
-      s.name.toLowerCase().includes(query) || s.category.toLowerCase().includes(query)
-    ) || [];
-    
-    // 2. Find categories of those matching shops
-    const matchingCategories = matchingShops.map(s => s.category);
-    
-    // 3. Find OTHER shops in the same categories
-    const otherShopIds = nearbyShops
-      ?.filter(s => matchingCategories.includes(s.category) && !matchingShops.some(ms => ms.id === s.id))
-      .map(s => s.id) || [];
-      
-    // 4. Products to show in "More Product Matches":
-    //    - Products from those "other" shops
-    //    - OR Products that directly match the search query by name
-    let matchingProducts = nearbyProducts?.filter(p => 
-      otherShopIds.includes(p.shop_id) || p.name.toLowerCase().includes(query)
-    ) || [];
-    
-    // 5. Exclude products from the matchingShops (because they are already shown in the horizontal list)
-    matchingProducts = matchingProducts.filter(p => !matchingShops.some(ms => ms.id === p.shop_id));
-    
-    listData = matchingShops.map(shop => ({ 
-      key: `search_shop_${shop.id}`, 
-      type: 'searchResult', 
-      shop, 
-      isProductMatch: false 
-    }));
-    
-    if (matchingProducts.length > 0) {
-      // Group matching products by shop_id
-      const shopGroups = {};
-      matchingProducts.forEach(p => {
-        if (!shopGroups[p.shop_id]) shopGroups[p.shop_id] = [];
-        shopGroups[p.shop_id].push(p);
-      });
-      
-      // Add each shop group as a searchResult
-      Object.keys(shopGroups).forEach(shopId => {
-        // Skip if this shop is already in matchingShops
-        if (!matchingShops.some(s => s.id == shopId)) {
-          const shop = nearbyShops?.find(s => s.id == shopId);
-          if (shop) {
-            listData.push({
-              key: `search_shop_${shop.id}`,
-              type: 'searchResult',
-              shop,
-              isProductMatch: true,
-              products: shopGroups[shopId]
-            });
-          }
-        } else {
-          // If the shop is already matched by name, but we ALSO have product matches, 
-          // let's update that specific result to show the product matches instead of default recommendations
-          const existingResult = listData.find(r => r.key === `search_shop_${shopId}`);
-          if (existingResult) {
-            existingResult.isProductMatch = true;
-            existingResult.products = shopGroups[shopId];
-          }
-        }
+    const query = searchQuery.trim().toLowerCase();
+
+    // 1. Direct shop matches
+    const directShopMatches = allShopsList.filter(s => 
+      (s.name && s.name.toLowerCase().includes(query)) ||
+      (s.category && s.category.toLowerCase().includes(query))
+    );
+
+    // 2. Matching products
+    const matchingProducts = (nearbyProducts || []).filter(p =>
+      (p.name && p.name.toLowerCase().includes(query)) ||
+      (p.description && p.description.toLowerCase().includes(query)) ||
+      (p.category && p.category.toLowerCase().includes(query))
+    );
+
+    // 3. Shops selling matching products
+    const matchingProductShopIds = matchingProducts.map(p => p.shop_id);
+    const productMatchingShops = allShopsList.filter(s => matchingProductShopIds.includes(s.id));
+
+    // Combine unique matching shops
+    const searchShopsResultMap = new Map();
+    [...directShopMatches, ...productMatchingShops].forEach(s => {
+      if (!searchShopsResultMap.has(s.id)) {
+        searchShopsResultMap.set(s.id, s);
+      }
+    });
+    const finalMatchingShops = Array.from(searchShopsResultMap.values());
+
+    listData = [];
+
+    if (finalMatchingShops.length > 0) {
+      listData.push({
+        key: 'search_shops_section',
+        type: 'searchShopsSection',
+        shops: finalMatchingShops,
+        matchingProducts: matchingProducts,
       });
     }
 
@@ -209,21 +215,28 @@ export const HomeScreen = () => {
     <SafeAreaView style={styles.container}>
       {/* Custom Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.locationDropdown} onPress={() => navigation.navigate('AddressMapPicker')}>
-          <MapPin color={theme.colors.textLight} size={16} style={{marginRight: 4}} />
-          <Text style={styles.locationText}>Downtown</Text>
-          <ChevronDown color={theme.colors.textLight} size={16} />
+        {/* Top Left: Local Area Name */}
+        <TouchableOpacity style={styles.locationDropdown} onPress={() => navigation.navigate('AddressList')}>
+          <MapPin color={theme.colors.primary} size={18} style={{marginRight: 6}} />
+          <View style={{flexShrink: 1, paddingRight: 4}}>
+            <Text style={styles.locationLabel}>{t('deliveringTo')}</Text>
+            <View style={{flexDirection: 'row', alignItems: 'center'}}>
+              <Text style={styles.locationText} numberOfLines={1}>{locationDisplayText}</Text>
+              <ChevronDown color={theme.colors.text} size={14} style={{marginLeft: 2}} />
+            </View>
+          </View>
         </TouchableOpacity>
 
+        {/* Top Right: Notification Bell */}
         <View style={styles.headerRightIcons}>
-          <TouchableOpacity onPress={() => navigation.navigate('Wishlist')} style={styles.iconMargin}>
-            <Heart color={theme.colors.text} size={24} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.avatarContainer} onPress={() => navigation.navigate('MainTabs', { screen: 'Profile' })}>
-            <Image 
-              source={{ uri: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100' }} 
-              style={styles.avatar} 
-            />
+          <TouchableOpacity 
+            onPress={() => navigation.navigate('Notifications')} 
+            activeOpacity={0.7}
+          >
+            <View style={styles.bellWrapper}>
+              <Bell color={theme.colors.text} size={22} />
+              <View style={styles.notificationBadgeDot} />
+            </View>
           </TouchableOpacity>
         </View>
       </View>
@@ -238,11 +251,16 @@ export const HomeScreen = () => {
         <Search color={theme.colors.primary} size={20} style={styles.searchIcon} />
         <TextInput 
           style={styles.searchInput}
-          placeholder="Search for products or shops..."
+          placeholder={t('searchPlaceholderHome')}
           placeholderTextColor={theme.colors.textLight}
           value={searchQuery}
           onChangeText={setSearchQuery}
         />
+        {searchQuery.length > 0 && (
+          <TouchableOpacity onPress={() => setSearchQuery('')} style={{ padding: 4 }}>
+            <XCircle color={theme.colors.textLight} size={20} />
+          </TouchableOpacity>
+        )}
       </View>
 
       <FlatList
@@ -252,121 +270,131 @@ export const HomeScreen = () => {
         }
         renderItem={({ item }) => {
           if (item.key === 'no_results') {
-            return <Text style={[styles.emptyText, {marginTop: 40}]}>No shops found for "{searchQuery}"</Text>;
-          }
-          
-          if (item.type === 'searchResult') {
-            const shop = item.shop;
-            // If it's a product match, use the matched products. Otherwise, use recommendations.
-            const productsToShow = item.isProductMatch ? item.products : (nearbyProducts?.filter(p => p.shop_id === shop.id) || []);
-            
             return (
-              <View style={styles.searchResultCard}>
-                <TouchableOpacity style={styles.searchShopHeader} onPress={() => handleShopPress(shop.id)} activeOpacity={0.8}>
-                  <View style={styles.searchShopDetails}>
-                    <View style={styles.searchShopCategoryRow}>
-                      <Text style={styles.searchShopCategoryText}>🏅 Best in {shop.category}</Text>
-                    </View>
-                    <Text style={styles.searchShopName} numberOfLines={1}>{shop.name}</Text>
-                    <Text style={styles.searchShopMeta}>⭐ {shop.rating_avg || '4.2'} (100+) • 30-35 mins</Text>
-                    <Text style={styles.searchShopLocation}>Downtown • {shop.distance?.toFixed(1) || '1.2'} km</Text>
-                  </View>
-                  <ChevronRight color={theme.colors.textLight} size={20} />
-                </TouchableOpacity>
-                
-                {item.isProductMatch && item.products?.length > 0 && (
-                  <View style={{ paddingHorizontal: theme.spacing.m, paddingBottom: 12 }}>
-                    {item.products.map((prod) => {
-                      const currentShopCart = Array.isArray(cartData) ? cartData.find(c => c.shop?.id == prod.shop_id) : null;
-                      const cartItem = currentShopCart?.items?.find(i => i.product_id == prod.id);
-                      const isWishlisted = Array.isArray(wishlistData) ? wishlistData.some(w => w.id === prod.id) : false;
-
-                      return (
-                        <ProductCard 
-                          key={`match_${prod.id}`}
-                          product={prod} 
-                          cartItem={cartItem} 
-                          onQtyChange={(productId, qty) => updateCartMutation.mutate({ shopId: prod.shop_id, productId, quantity: qty })}
-                          isWishlisted={isWishlisted}
-                          onWishlistToggle={(productId, currentStatus) => toggleWishlistMutation.mutate({ productId, isWishlisted: currentStatus })}
-                          variant="horizontal"
-                          style={{ width: '100%', marginBottom: 12 }}
-                        />
-                      );
-                    })}
-                  </View>
-                )}
-
-                {(() => {
-                  const recommendedProducts = (nearbyProducts?.filter(p => p.shop_id === shop.id) || [])
-                    .filter(p => !item.isProductMatch || !item.products.some(mp => mp.id === p.id));
-                  
-                  if (recommendedProducts.length === 0) return null;
-
-                  return (
-                    <View>
-                      <Text style={styles.recommendedTitle}>RECOMMENDED IN THIS MENU</Text>
-                      <FlatList
-                        horizontal
-                        data={recommendedProducts}
-                        keyExtractor={(prod) => prod.id.toString()}
-                        showsHorizontalScrollIndicator={false}
-                        renderItem={({ item: prod }) => {
-                          const currentShopCart = Array.isArray(cartData) ? cartData.find(c => c.shop?.id == prod.shop_id) : null;
-                          const cartItem = currentShopCart?.items?.find(i => i.product_id == prod.id);
-                          const isWishlisted = Array.isArray(wishlistData) ? wishlistData.some(w => w.id === prod.id) : false;
-
-                          return (
-                            <ProductCard 
-                              product={prod} 
-                              cartItem={cartItem} 
-                              onQtyChange={(productId, qty) => updateCartMutation.mutate({ shopId: prod.shop_id, productId, quantity: qty })}
-                              isWishlisted={isWishlisted}
-                              onWishlistToggle={(productId, currentStatus) => toggleWishlistMutation.mutate({ productId, isWishlisted: currentStatus })}
-                              variant="vertical"
-                              style={{ width: 140, maxWidth: undefined, margin: 8, marginLeft: 0, marginRight: 12 }}
-                            />
-                          );
-                        }}
-                        contentContainerStyle={{ paddingLeft: theme.spacing.m, paddingBottom: 16, paddingRight: theme.spacing.m }}
-                      />
-                    </View>
-                  );
-                })()}
-                <View style={styles.searchResultDivider} />
+              <View style={styles.noResultsContainer}>
+                <Search color={theme.colors.textLight} size={44} style={{ marginBottom: 12 }} />
+                <Text style={styles.emptyTitle}>No results found</Text>
+                <Text style={styles.emptySubtext}>
+                  No products or shops found matching "{searchQuery}". Try searching for another keyword or shop name.
+                </Text>
               </View>
             );
           }
 
-          if (item.type === 'searchProductsGrid') {
-            return (
-              <View style={[styles.section, { marginTop: 8 }]}>
-                <View style={styles.sectionHeaderRow}>
-                  <Text style={styles.sectionTitle}>More Product Matches</Text>
-                </View>
-                <FlatList
-                  data={item.products}
-                  keyExtractor={(prod) => prod.id.toString() + '_' + prod.shop_id}
-                  numColumns={2}
-                  scrollEnabled={false}
-                  columnWrapperStyle={{ paddingHorizontal: 8, justifyContent: 'space-between' }}
-                  renderItem={({ item: prod }) => {
-                    const currentShopCart = Array.isArray(cartData) ? cartData.find(c => c.shop?.id == prod.shop_id) : null;
-                    const cartItem = currentShopCart?.items?.find(i => i.product_id == prod.id);
-                    const isWishlisted = Array.isArray(wishlistData) ? wishlistData.some(w => w.id === prod.id) : false;
 
-                    return (
-                      <ProductCard 
-                        key={prod.id.toString() + '_' + prod.shop_id}
-                        product={prod} 
-                        cartItem={cartItem} 
-                        onQtyChange={(productId, qty) => updateCartMutation.mutate({ shopId: prod.shop_id, productId, quantity: qty })}
-                        isWishlisted={isWishlisted}
-                        onWishlistToggle={(productId, currentStatus) => toggleWishlistMutation.mutate({ productId, isWishlisted: currentStatus })}
-                      />
-                    );
-                  }}
-                />
+          if (item.type === 'searchShopsSection') {
+            return (
+              <View style={styles.section}>
+                <View style={styles.sectionHeaderRow}>
+                  <Text style={styles.sectionTitle}>Matching Shops ({item.shops.length})</Text>
+                </View>
+                {item.shops.map((shop, index) => {
+                  const shopProducts = (item.matchingProducts || []).filter(p => p.shop_id === shop.id);
+                  const isOpen = shop?.status === 'active' || shop?.is_open !== false;
+                  const rating = shop?.rating || '4.8';
+                  const deliveryTime = shop?.delivery_time || '20-30 mins';
+                  const displayDistance = shop.distance !== undefined ? `${shop.distance.toFixed(1)} km` : shop?.distance ? `${parseFloat(shop.distance).toFixed(1)} km` : '1.2 km';
+
+                  return (
+                    <View key={`search_shop_${shop.id}_${index}`} style={styles.searchShopCardContainer}>
+                      {/* Shop Header Row inside unified card */}
+                      <TouchableOpacity 
+                        style={styles.searchShopHeader}
+                        onPress={() => handleShopPress(shop.id)}
+                        activeOpacity={0.8}
+                      >
+                        {/* Left Shop Thumbnail Image */}
+                        <View style={styles.searchShopImageWrapper}>
+                          <Image
+                            source={{ uri: shop.banner_url || 'https://images.unsplash.com/photo-1578916171728-46686eac8d58?w=400' }}
+                            style={styles.searchShopImage}
+                          />
+                          <View style={[styles.searchShopStatusDot, { backgroundColor: isOpen ? '#22C55E' : '#94A3B8' }]} />
+                        </View>
+
+                        {/* Middle Content */}
+                        <View style={styles.searchShopContent}>
+                          {/* Shop Name & Status Badge */}
+                          <View style={styles.searchShopHeaderRow}>
+                            <Text style={styles.searchShopName} numberOfLines={1}>{shop.name}</Text>
+                            <View style={[styles.searchShopStatusBadge, { backgroundColor: isOpen ? '#DCFCE7' : '#F1F5F9' }]}>
+                              <Text style={[styles.searchShopStatusBadgeText, { color: isOpen ? '#15803D' : '#64748B' }]}>
+                                {isOpen ? 'Open' : 'Closed'}
+                              </Text>
+                            </View>
+                          </View>
+
+                          {/* Category Tag */}
+                          <View style={styles.searchShopCategoryRow}>
+                            <Text style={styles.searchShopCategoryPill}>{shop.category || 'General Store'}</Text>
+                          </View>
+
+                          {/* Meta Info: Rating, Delivery Time, Distance */}
+                          <View style={styles.searchShopMetaRow}>
+                            <View style={styles.searchShopMetaItem}>
+                              <Star color="#F59E0B" fill="#F59E0B" size={13} style={{ marginRight: 3 }} />
+                              <Text style={styles.searchShopRatingText}>{rating}</Text>
+                            </View>
+
+                            <Text style={styles.searchShopMetaDot}>•</Text>
+
+                            <View style={styles.searchShopMetaItem}>
+                              <Clock color={theme.colors.primary} size={13} style={{ marginRight: 3 }} />
+                              <Text style={styles.searchShopMetaText}>{deliveryTime}</Text>
+                            </View>
+
+                            <Text style={styles.searchShopMetaDot}>•</Text>
+
+                            <View style={styles.searchShopMetaItem}>
+                              <MapPin color="#64748B" size={13} style={{ marginRight: 3 }} />
+                              <Text style={styles.searchShopMetaText}>{displayDistance}</Text>
+                            </View>
+                          </View>
+                        </View>
+
+                        {/* Right Arrow Button */}
+                        <View style={styles.searchShopActionBtn}>
+                          <ChevronRight color={theme.colors.primary} size={18} />
+                        </View>
+                      </TouchableOpacity>
+
+                      {/* Products Section inside the SAME card container */}
+                      {shopProducts.length > 0 && (
+                        <View style={styles.searchShopProductsContainer}>
+                          <Text style={styles.searchShopProductsTitle}>Matching Products ({shopProducts.length})</Text>
+                          <ScrollView 
+                            horizontal 
+                            showsHorizontalScrollIndicator={false} 
+                            contentContainerStyle={styles.searchShopProductsScroll}
+                            keyboardShouldPersistTaps="handled"
+                          >
+                            {shopProducts.map((product) => {
+                              const cartItems = getCartItemsForProduct(product);
+                              return (
+                                <ProductCard
+                                  key={`shop_prod_${product.id}`}
+                                  product={product}
+                                  cartItems={cartItems}
+                                  style={styles.searchShopProductCard}
+                                  onQtyChange={(productId, quantity, unit, price, note) => {
+                                    addToCartMutation.mutate({
+                                      shopId: product.shop_id,
+                                      productId,
+                                      quantity,
+                                      unit,
+                                      price,
+                                      note
+                                    });
+                                  }}
+                                />
+                              );
+                            })}
+                          </ScrollView>
+                        </View>
+                      )}
+                    </View>
+                  );
+                })}
               </View>
             );
           }
@@ -375,8 +403,12 @@ export const HomeScreen = () => {
             return (
               <View style={styles.section}>
                 <View style={styles.sectionHeaderRow}>
-                  <Text style={styles.sectionTitle}>My Shops</Text>
-                  <TouchableOpacity><Text style={styles.seeAllText}>See All</Text></TouchableOpacity>
+                  <Text style={styles.sectionTitle}>{t('myShops')}</Text>
+                  {myShops?.length > 0 && (
+                    <TouchableOpacity onPress={() => navigation.navigate('ManageShops')} activeOpacity={0.7}>
+                      <Text style={styles.manageLinkText}>Manage</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
                 {loadingMyShops ? (
                   <ActivityIndicator style={{margin: 20}} />
@@ -392,33 +424,62 @@ export const HomeScreen = () => {
                     contentContainerStyle={{ paddingLeft: theme.spacing.m }}
                   />
                 ) : (
-                  <Text style={styles.emptyText}>You haven't saved any shops yet.</Text>
+                  <Text style={styles.emptyText}>You haven't added any favorite shops yet.</Text>
                 )}
               </View>
             );
           }
+
           if (item.key === 'nearbyShops') {
             return (
               <View style={styles.section}>
-                <Text style={styles.sectionTitle}>Shops Nearby</Text>
+                <View style={styles.sectionHeaderRow}>
+                  <Text style={styles.sectionTitle}>{t('shopsNearby')}</Text>
+                </View>
                 
                 {nearbyCategories.length > 1 && (
                   <ScrollView 
                     horizontal 
                     showsHorizontalScrollIndicator={false} 
-                    contentContainerStyle={styles.categoryChipsContainer}
+                    contentContainerStyle={styles.nearbyCategoryCircleScroll}
                   >
-                    {nearbyCategories.map(cat => (
-                      <TouchableOpacity 
-                        key={cat} 
-                        style={[styles.categoryChip, selectedCategory === cat && styles.categoryChipActive]}
-                        onPress={() => setSelectedCategory(cat)}
-                      >
-                        <Text style={[styles.categoryChipText, selectedCategory === cat && styles.categoryChipTextActive]}>
-                          {cat}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
+                    {nearbyCategories.map(cat => {
+                      const isSelected = selectedCategory === cat;
+                      const imageUri = CATEGORY_IMAGE_MAP[cat] || DEFAULT_CATEGORY_IMAGE;
+                      return (
+                        <TouchableOpacity 
+                          key={cat} 
+                          style={styles.nearbyCategoryWrapper}
+                          onPress={() => setSelectedCategory(cat)}
+                          activeOpacity={0.8}
+                        >
+                          <View style={[
+                            styles.nearbyCategoryCircle,
+                            isSelected && styles.nearbyCategoryCircleSelected
+                          ]}>
+                            <Image 
+                              source={{ uri: imageUri }}
+                              style={styles.nearbyCategoryImage}
+                              resizeMode="cover"
+                            />
+                            {isSelected && (
+                              <View style={styles.selectedCheckOverlay}>
+                                <Check color="#FFF" size={14} strokeWidth={3} />
+                              </View>
+                            )}
+                          </View>
+                          <Text 
+                            style={[
+                              styles.nearbyCategoryLabel,
+                              isSelected && styles.nearbyCategoryLabelSelected
+                            ]} 
+                            numberOfLines={1}
+                          >
+                            {cat}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
                   </ScrollView>
                 )}
 
@@ -430,7 +491,7 @@ export const HomeScreen = () => {
                     </TouchableOpacity>
                   </View>
                 ) : locationStatus === 'loading' || loadingNearby ? (
-                  <ActivityIndicator style={{margin: 20}} color="#006B54" />
+                  <ActivityIndicator style={{margin: 20}} color={theme.colors.primary} />
                 ) : filteredNearbyShops?.length > 0 ? (
                   <FlatList
                     data={filteredNearbyShops}
@@ -448,48 +509,25 @@ export const HomeScreen = () => {
               </View>
             );
           }
-          if (item.key === 'nearbyProducts') {
-            if (!nearbyProducts || nearbyProducts.length === 0) return null;
-            return (
-              <View style={[styles.section, { marginTop: 8 }]}>
-                <View style={styles.sectionHeaderRow}>
-                  <Text style={styles.sectionTitle}>Discover Products</Text>
-                </View>
-                {loadingProducts ? (
-                  <ActivityIndicator style={{margin: 20}} />
-                ) : (
-                  <FlatList
-                    data={nearbyProducts}
-                    keyExtractor={(prod) => prod.id.toString() + '_' + prod.shop_id}
-                    numColumns={2}
-                    scrollEnabled={false}
-                    columnWrapperStyle={{ paddingHorizontal: 8, justifyContent: 'space-between' }}
-                    renderItem={({ item: prod }) => {
-                      const currentShopCart = Array.isArray(cartData) ? cartData.find(c => c.shop?.id == prod.shop_id) : null;
-                      const cartItem = currentShopCart?.items?.find(i => i.product_id == prod.id);
-                      const isWishlisted = Array.isArray(wishlistData) ? wishlistData.some(w => w.id === prod.id) : false;
 
-                      return (
-                        <ProductCard 
-                          key={prod.id.toString() + '_' + prod.shop_id}
-                          product={prod} 
-                          cartItem={cartItem} 
-                          onQtyChange={(productId, qty) => updateCartMutation.mutate({ shopId: prod.shop_id, productId, quantity: qty })}
-                          isWishlisted={isWishlisted}
-                          onWishlistToggle={(productId, currentStatus) => toggleWishlistMutation.mutate({ productId, isWishlisted: currentStatus })}
-                        />
-                      );
-                    }}
-                  />
-                )}
-              </View>
-            );
-          }
           return null;
         }}
         contentContainerStyle={{ paddingBottom: theme.spacing.xl }}
       />
 
+      {/* Floating Scanner Button (Bottom Right Corner) */}
+      <TouchableOpacity 
+        style={[
+          styles.scannerFab, 
+          showCartBanner && styles.scannerFabShifted
+        ]}
+        onPress={() => navigation.navigate('QRScanner')}
+        activeOpacity={0.85}
+      >
+        <QrCode color="#FFFFFF" size={24} />
+      </TouchableOpacity>
+
+      {/* Sticky Cart Banner */}
       {showCartBanner && (
         <Animated.View entering={SlideInDown} exiting={SlideOutDown} style={styles.stickyCartBannerWrapper}>
           <TouchableOpacity style={styles.stickyCartBannerInner} onPress={() => navigation.navigate('MainTabs', { screen: 'Basket' })}>
@@ -515,28 +553,49 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: theme.spacing.m,
-    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 15 : theme.spacing.m,
+    paddingTop: Platform.OS === 'android' ? StatusBar.currentHeight + 12 : theme.spacing.m,
     paddingBottom: theme.spacing.s,
   },
   locationDropdown: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F0F0F0', // Soft gray like the design
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    backgroundColor: '#F0F0F0',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
     borderRadius: 20,
   },
+  locationLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: theme.colors.primary,
+    letterSpacing: 0.5,
+  },
   locationText: {
-    ...theme.typography.body,
-    fontWeight: 'bold',
-    marginRight: 4,
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#1E293B',
+    maxWidth: 130,
   },
   headerRightIcons: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   iconMargin: {
-    marginRight: 16,
+    marginRight: 14,
+  },
+  bellWrapper: {
+    position: 'relative',
+  },
+  notificationBadgeDot: {
+    position: 'absolute',
+    top: -1,
+    right: -1,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#EF4444',
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF',
   },
   avatarContainer: {
     width: 32,
@@ -584,74 +643,140 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: theme.spacing.m,
-    marginBottom: theme.spacing.s,
+    marginBottom: 12,
   },
   sectionTitle: {
     ...theme.typography.title,
     fontSize: 20,
-    paddingHorizontal: theme.spacing.m,
   },
   seeAllText: {
-    color: '#006B54',
+    color: theme.colors.primary,
     fontWeight: '600',
   },
   emptyText: {
     ...theme.typography.body,
     color: theme.colors.textLight,
+    paddingHorizontal: theme.spacing.m,
     textAlign: 'center',
-    marginVertical: theme.spacing.m,
+    marginTop: theme.spacing.m,
+  },
+  noResultsContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: theme.spacing.xl,
+    paddingVertical: 40,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: theme.colors.text,
+    marginBottom: 8,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: theme.colors.textLight,
+    textAlign: 'center',
+    lineHeight: 20,
+  },
+  categoryChipsContainer: {
+    paddingHorizontal: theme.spacing.m,
+    marginBottom: theme.spacing.m,
+  },
+  categoryChip: {
+    paddingHorizontal: theme.spacing.m,
+    paddingVertical: theme.spacing.s,
+    borderRadius: 20,
+    backgroundColor: '#F0F0F0',
+    marginRight: theme.spacing.s,
+  },
+  categoryChipActive: {
+    backgroundColor: theme.colors.primary,
+  },
+  categoryChipText: {
+    ...theme.typography.body,
+    color: theme.colors.text,
+  },
+  categoryChipTextActive: {
+    color: '#FFF',
+    fontWeight: 'bold',
   },
   locationFallbackCard: {
-    backgroundColor: '#E8F5E9',
-    padding: 16,
+    backgroundColor: '#FFF3CD',
+    padding: theme.spacing.m,
     borderRadius: 12,
+    marginHorizontal: theme.spacing.m,
+    flexDirection: 'row',
     alignItems: 'center',
-    marginHorizontal: 16,
-    marginVertical: 10,
+    justifyContent: 'space-between',
   },
   locationFallbackText: {
     ...theme.typography.body,
-    color: '#006B54',
-    marginBottom: 10,
+    color: '#856404',
+    flex: 1,
+    marginRight: theme.spacing.s,
   },
   retryBtn: {
-    backgroundColor: '#006B54',
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    borderRadius: 20,
+    backgroundColor: '#856404',
+    paddingHorizontal: theme.spacing.m,
+    paddingVertical: theme.spacing.xs,
+    borderRadius: 6,
   },
   retryBtnText: {
     color: '#FFF',
     fontWeight: 'bold',
   },
+  scannerFab: {
+    position: 'absolute',
+    bottom: 25,
+    right: 20,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: theme.colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: theme.colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 8,
+    elevation: 7,
+    zIndex: 99,
+  },
+  scannerFabShifted: {
+    bottom: 90,
+  },
   stickyCartBannerWrapper: {
     position: 'absolute',
-    bottom: Platform.OS === 'ios' ? 24 : 16,
-    left: 16,
-    right: 16,
+    bottom: 20,
+    left: 20,
+    right: 20,
   },
   stickyCartBannerInner: {
-    backgroundColor: '#006B54',
-    borderRadius: 12,
+    backgroundColor: theme.colors.primary,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderRadius: 28,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    ...theme.shadows.soft,
+    shadowColor: theme.colors.primary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
   },
   cartCountBadge: {
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    backgroundColor: '#FFF',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
   },
   cartCountText: {
-    color: '#FFF',
+    color: theme.colors.primary,
     fontWeight: 'bold',
-    fontSize: 16,
+    fontSize: 14,
   },
   viewCartText: {
     color: '#FFF',
@@ -663,108 +788,211 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     fontSize: 16,
   },
-  categoryChipsContainer: {
-    paddingHorizontal: 20,
-    marginBottom: 16,
-    marginTop: 12,
-    flexDirection: 'row',
+  nearbyCategoryCircleScroll: {
+    paddingLeft: theme.spacing.m,
+    paddingRight: theme.spacing.s,
+    paddingVertical: 10,
+    marginBottom: 8,
   },
-  categoryChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+  nearbyCategoryWrapper: {
+    alignItems: 'center',
+    marginRight: 16,
+    width: 66,
+  },
+  nearbyCategoryCircle: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#F8FAFC',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 6,
+    borderWidth: 2,
+    borderColor: '#E2E8F0',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.1,
+    shadowRadius: 5,
+    elevation: 4,
+    position: 'relative',
+  },
+  nearbyCategoryCircleSelected: {
+    borderWidth: 3,
+    borderColor: theme.colors.primary,
+    shadowColor: theme.colors.primary,
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 7,
+  },
+  nearbyCategoryImage: {
+    width: '100%',
+    height: '100%',
+  },
+  selectedCheckOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    left: 0,
+    top: 0,
+    backgroundColor: 'rgba(22, 163, 74, 0.45)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  nearbyCategoryLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#475569',
+    textAlign: 'center',
+  },
+  nearbyCategoryLabelSelected: {
+    color: theme.colors.primary,
+    fontWeight: '800',
+  },
+  searchShopCardContainer: {
+    backgroundColor: '#FFFFFF',
     borderRadius: 20,
-    backgroundColor: '#F0F0F0',
-    marginRight: 8,
-  },
-  categoryChipActive: {
-    backgroundColor: theme.colors.primary,
-  },
-  categoryChipText: {
-    ...theme.typography.body,
-    fontSize: 14,
-    color: theme.colors.textLight,
-    fontWeight: '500',
-  },
-  categoryChipTextActive: {
-    color: '#FFF',
-  },
-  searchResultCard: {
-    marginBottom: theme.spacing.l,
-    backgroundColor: theme.colors.background,
+    marginVertical: 8,
+    marginHorizontal: 16,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 3,
   },
   searchShopHeader: {
     flexDirection: 'row',
-    paddingHorizontal: theme.spacing.m,
-    paddingVertical: theme.spacing.m,
     alignItems: 'center',
+    padding: 12,
+  },
+  searchShopImageWrapper: {
+    position: 'relative',
+    marginRight: 14,
   },
   searchShopImage: {
-    width: 72,
-    height: 72,
+    width: 76,
+    height: 76,
     borderRadius: 16,
-    marginRight: theme.spacing.m,
+    backgroundColor: '#F8FAFC',
   },
-  searchShopDetails: {
+  searchShopStatusDot: {
+    position: 'absolute',
+    bottom: 2,
+    right: 2,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+  },
+  searchShopContent: {
     flex: 1,
     justifyContent: 'center',
   },
-  searchTabsContainer: {
+  searchShopHeaderRow: {
     flexDirection: 'row',
-    paddingHorizontal: theme.spacing.m,
-    marginBottom: theme.spacing.m,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
   },
-  searchTabsActive: {
-    ...theme.typography.subtitle,
+  searchShopName: {
     fontSize: 16,
-    color: '#333',
-    borderBottomWidth: 2,
-    borderBottomColor: '#333',
-    paddingBottom: 4,
+    fontWeight: 'bold',
+    color: '#0F172A',
+    flex: 1,
+    marginRight: 8,
+  },
+  searchShopStatusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+  },
+  searchShopStatusBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
   },
   searchShopCategoryRow: {
     flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 2,
+    marginBottom: 6,
   },
-  searchShopCategoryText: {
-    ...theme.typography.caption,
-    fontSize: 12,
-    fontWeight: 'bold',
-    color: '#D97706', // Orange tint for "Best in"
-  },
-  searchShopName: {
-    ...theme.typography.subtitle,
-    fontSize: 18,
-    marginBottom: 4,
-  },
-  searchShopMeta: {
-    ...theme.typography.body,
-    fontSize: 13,
-    color: '#374151',
+  searchShopCategoryPill: {
+    fontSize: 11,
     fontWeight: '600',
-    marginBottom: 2,
+    color: theme.colors.primary,
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
   },
-  searchShopLocation: {
-    ...theme.typography.caption,
-    fontSize: 13,
-    color: theme.colors.textLight,
+  searchShopMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  recommendedTitle: {
-    ...theme.typography.caption,
+  searchShopMetaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  searchShopRatingText: {
     fontSize: 12,
-    fontWeight: 'bold',
-    letterSpacing: 1,
-    color: theme.colors.textLight,
-    marginLeft: theme.spacing.m,
-    marginTop: theme.spacing.xs,
-    marginBottom: theme.spacing.s,
-    textTransform: 'uppercase',
+    fontWeight: '700',
+    color: '#F59E0B',
   },
-  searchResultDivider: {
-    height: 8,
-    backgroundColor: '#F3F4F6',
-    marginTop: theme.spacing.xs,
-  }
+  searchShopMetaDot: {
+    marginHorizontal: 5,
+    color: '#94A3B8',
+    fontSize: 10,
+  },
+  searchShopMetaText: {
+    fontSize: 12,
+    color: '#64748B',
+    fontWeight: '600',
+  },
+  searchShopActionBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F8FAFC',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
+  },
+  searchShopProductsContainer: {
+    backgroundColor: '#F8FAFC',
+    borderBottomLeftRadius: 19,
+    borderBottomRightRadius: 19,
+    padding: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#F1F5F9',
+  },
+  searchShopProductsTitle: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#64748B',
+    marginBottom: 8,
+    paddingLeft: 4,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  searchShopProductsScroll: {
+    gap: 8,
+    paddingRight: 8,
+  },
+  searchShopProductCard: {
+    // Wide enough for the full stepper (−, unit dropdown, +) once an item is
+    // in the cart — narrower widths clip the + button off the card's edge.
+    width: 172,
+    maxWidth: 172,
+    margin: 4,
+    borderWidth: 1,
+    borderColor: '#F1F5F9',
+  },
+  manageLinkText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: theme.colors.primary,
+  },
 });
 
 export default HomeScreen;

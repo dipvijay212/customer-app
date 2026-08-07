@@ -1,17 +1,23 @@
 export const theme = {
   colors: {
-    primary: '#1D6B35', // Deep rich green
-    primaryLight: '#81F2AE', // Mint green (active tab, tags)
-    secondary: '#EBF4EC', // Very soft green background (language pills)
-    background: '#FDFDF9', // Warm off-white
-    surface: '#FFFFFF',
+    primary: '#16A34A', // Primary Green
+    primaryDark: '#15803D', // Dark Green
+    primaryLight: '#DCFCE7', // Light Green
+    secondary: '#ECFDF5', // Soft green accent background
+    background: '#F8FAFC', // Slate background
+    surface: '#FFFFFF', // Card background
     white: '#FFFFFF',
-    black: '#000000',
-    text: '#222222',
-    textLight: '#777777',
-    error: '#D32F2F',
-    border: '#EEEEEE',
-    accent: '#F2994A' // Orange for 'SALE' or alerts
+    black: '#0F172A',
+    border: '#E2E8F0', // Light slate border
+    text: '#0F172A', // Primary text
+    textDark: '#0F172A',
+    textLight: '#64748B', // Secondary text
+    textSecondary: '#64748B',
+    error: '#EF4444',
+    danger: '#EF4444',
+    warning: '#F59E0B',
+    success: '#22C55E',
+    accent: '#F59E0B',
   },
   spacing: {
     xs: 4,
@@ -19,44 +25,60 @@ export const theme = {
     m: 16,
     l: 24,
     xl: 32,
-    xxl: 40
+    xxl: 40,
   },
-  roundness: 12,
-  roundnessLg: 20,
+  roundness: 16,
+  roundnessLg: 24,
   shadows: {
     soft: {
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 4 },
+      shadowColor: '#0F172A',
+      shadowOffset: { width: 0, height: 2 },
       shadowOpacity: 0.05,
-      shadowRadius: 10,
-      elevation: 3,
+      shadowRadius: 8,
+      elevation: 2,
     },
     medium: {
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 6 },
-      shadowOpacity: 0.1,
+      shadowColor: '#0F172A',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.08,
       shadowRadius: 16,
+      elevation: 4,
+    },
+    premium: {
+      shadowColor: '#16A34A',
+      shadowOffset: { width: 0, height: 8 },
+      shadowOpacity: 0.1,
+      shadowRadius: 24,
       elevation: 6,
     }
   },
   typography: {
     title: {
-      fontSize: 26,
+      fontSize: 28,
       fontWeight: '800',
-      color: '#1D6B35'
+      color: '#0F172A',
     },
     subtitle: {
-      fontSize: 18,
-      fontWeight: '600',
-      color: '#222222'
+      fontSize: 20,
+      fontWeight: '700',
+      color: '#0F172A',
     },
     body: {
-      fontSize: 14,
-      color: '#222222'
+      fontSize: 15,
+      color: '#0F172A',
+      lineHeight: 22,
     },
     caption: {
       fontSize: 12,
-      color: '#777777'
-    }
-  }
+      color: '#64748B',
+    },
+    button: {
+      fontSize: 16,
+      fontWeight: '700',
+    },
+  },
+  controls: {
+    touchTargetHeight: 52,
+  },
 };
+

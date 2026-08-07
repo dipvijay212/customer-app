@@ -3,14 +3,16 @@ import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, Alert, Saf
 import DraggableFlatList, { ScaleDecorator } from 'react-native-draggable-flatlist';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Trash2, GripVertical, ChevronLeft } from 'lucide-react-native';
+import { Trash2, GripVertical, ChevronLeft, Plus, Store } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
 import axiosClient from '../api/axiosClient';
 import { theme } from '../theme';
+import { useTranslation } from '../utils/translations';
 
 export const ManageShopsScreen = () => {
   const navigation = useNavigation();
   const queryClient = useQueryClient();
+  const t = useTranslation();
   const [data, setData] = useState([]);
 
   const { data: shops, isLoading } = useQuery({
@@ -55,9 +57,9 @@ export const ManageShopsScreen = () => {
   }
 
   const handleDelete = (id, name) => {
-    Alert.alert('Remove Shop', `Are you sure you want to remove ${name}?`, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Remove', style: 'destructive', onPress: () => deleteMutation.mutate(id) }
+    Alert.alert(t('delete'), `Are you sure you want to remove ${name}?`, [
+      { text: t('cancel'), style: 'cancel' },
+      { text: t('delete'), style: 'destructive', onPress: () => deleteMutation.mutate(id) }
     ]);
   };
 
@@ -66,7 +68,7 @@ export const ManageShopsScreen = () => {
       <ScaleDecorator>
         <TouchableOpacity
           activeOpacity={0.8}
-          onPress={() => navigation.navigate('Shop', { shopId: item.id })}
+          onPress={() => navigation.navigate('ShopStorefront', { id: item.id })}
           onLongPress={drag}
           disabled={isActive}
           style={[styles.rowItem, isActive && styles.rowItemActive]}
@@ -101,16 +103,32 @@ export const ManageShopsScreen = () => {
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
             <ChevronLeft color={theme.colors.text} size={28} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Manage Shops</Text>
-          <View style={{ width: 28 }} />
+          <Text style={styles.headerTitle}>{t('manageShopsHeader')}</Text>
+          <View style={{width: 28}} />
         </View>
-        <Text style={styles.instruction}>Drag the grip icon to reorder your saved shops.</Text>
-
+        <Text style={styles.instruction}>{t('dragToReorder')}</Text>
         <DraggableFlatList
           data={data}
           onDragEnd={handleDragEnd}
           keyExtractor={(item) => item.id.toString()}
           renderItem={renderItem}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Store color={theme.colors.textLight} size={48} style={{ marginBottom: 12 }} />
+              <Text style={styles.emptyTitle}>{t('noSavedShops')}</Text>
+              <Text style={styles.emptySubtitle}>{t('noSavedShopsSub')}</Text>
+            </View>
+          }
+          ListFooterComponent={
+            <TouchableOpacity 
+              style={styles.addMoreBtn}
+              onPress={() => navigation.navigate('MainTabs', { screen: 'Home' })}
+              activeOpacity={0.8}
+            >
+              <Plus color={theme.colors.primary} size={18} style={{ marginRight: 6 }} />
+              <Text style={styles.addMoreBtnText}>{t('browseSaveShops')}</Text>
+            </TouchableOpacity>
+          }
           contentContainerStyle={{ paddingBottom: theme.spacing.xl }}
         />
       </SafeAreaView>
@@ -196,7 +214,42 @@ const styles = StyleSheet.create({
     backgroundColor: '#FEE2E2',
     padding: 8,
     borderRadius: 8,
-  }
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+    marginTop: 20,
+  },
+  emptyTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: theme.colors.text,
+    marginBottom: 6,
+  },
+  emptySubtitle: {
+    fontSize: 13,
+    color: theme.colors.textLight,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  addMoreBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ECFDF5',
+    borderWidth: 1,
+    borderColor: '#DCFCE7',
+    borderRadius: 14,
+    paddingVertical: 14,
+    marginHorizontal: theme.spacing.m,
+    marginTop: 12,
+  },
+  addMoreBtnText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: theme.colors.primary,
+  },
 });
 
 export default ManageShopsScreen;

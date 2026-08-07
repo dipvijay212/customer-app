@@ -4,11 +4,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import axiosClient from '../api/axiosClient';
 import { theme } from '../theme';
-import { Menu, Truck, RotateCcw, MessageSquare, Gift, HelpCircle } from 'lucide-react-native';
+import { Truck, RotateCcw, HelpCircle, ArrowLeft } from 'lucide-react-native';
+import { useTranslation } from '../utils/translations';
 
 export const OrdersScreen = () => {
   const navigation = useNavigation();
   const queryClient = useQueryClient();
+  const t = useTranslation();
   const [refreshing, setRefreshing] = useState(false);
 
   const { data: orders, isLoading, refetch } = useQuery({
@@ -39,7 +41,7 @@ export const OrdersScreen = () => {
   if (isLoading) {
     return (
       <SafeAreaView style={styles.center}>
-        <ActivityIndicator size="large" color="#006B54" />
+        <ActivityIndicator size="large" color={theme.colors.primary} />
       </SafeAreaView>
     );
   }
@@ -51,7 +53,7 @@ export const OrdersScreen = () => {
     
     // Fallback UI text for items / distance
     const itemsCount = order.items ? order.items.reduce((sum, item) => sum + item.quantity, 0) : 0;
-    const distance = order.shop?.distance ? order.shop.distance : '1.2 km away';
+    const distanceText = order.shop?.distance ? t('kmAway', { distance: `${parseFloat(order.shop.distance).toFixed(1)} km` }) : t('kmAway', { distance: '1.2 km' });
 
     return (
       <View style={styles.orderCard}>
@@ -65,30 +67,25 @@ export const OrdersScreen = () => {
             {isDelivered && <Text style={[styles.statusIcon, {color: '#555'}]}>✓</Text>}
             {!isDelivered && <View style={styles.statusDot} />}
             <Text style={[styles.statusText, isDelivered ? styles.statusTextDelivered : styles.statusTextPreparing]}>
-              {isDelivered ? 'Delivered' : 'Preparing'}
+              {isDelivered ? t('delivered') : t('preparing')}
             </Text>
           </View>
         </View>
 
         <View style={styles.orderDetailsRow}>
-          <Text style={styles.itemsText}>{itemsCount} {itemsCount === 1 ? 'item' : 'items'} • {isDelivered ? 'Hand delivered' : distance}</Text>
+          <Text style={styles.itemsText}>{itemsCount} {itemsCount === 1 ? t('item') : t('items')} • {isDelivered ? t('handDelivered') : distanceText}</Text>
           <Text style={styles.priceText}>₹{parseFloat(order.total_amount || 0).toFixed(2)}</Text>
         </View>
 
         <View style={styles.actionsRow}>
           {isPreparing ? (
-            <>
-              <TouchableOpacity 
-                style={styles.btnPrimary}
-                onPress={() => navigation.navigate('OrderDetail', { id: order.id })}
-              >
-                <Truck color="#FFF" size={16} style={{marginRight: 6}} />
-                <Text style={styles.btnPrimaryText}>Track Order</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.btnIconOutline}>
-                <MessageSquare color="#555" size={18} />
-              </TouchableOpacity>
-            </>
+            <TouchableOpacity 
+              style={[styles.btnPrimary, { marginRight: 0 }]}
+              onPress={() => navigation.navigate('OrderDetail', { id: order.id })}
+            >
+              <Truck color="#FFF" size={16} style={{marginRight: 6}} />
+              <Text style={styles.btnPrimaryText}>{t('orderDetails')}</Text>
+            </TouchableOpacity>
           ) : (
             <>
               <TouchableOpacity 
@@ -96,13 +93,13 @@ export const OrdersScreen = () => {
                 onPress={() => reorderMutation.mutate(order.id)}
               >
                 <RotateCcw color="#FFF" size={16} style={{marginRight: 6}} />
-                <Text style={styles.btnPrimaryText}>Buy Again</Text>
+                <Text style={styles.btnPrimaryText}>{t('buyAgain')}</Text>
               </TouchableOpacity>
               <TouchableOpacity 
                 style={styles.btnSecondary}
                 onPress={() => navigation.navigate('OrderDetail', { id: order.id })}
               >
-                <Text style={styles.btnSecondaryText}>Order Details</Text>
+                <Text style={styles.btnSecondaryText}>{t('orderDetails')}</Text>
               </TouchableOpacity>
             </>
           )}
@@ -113,25 +110,15 @@ export const OrdersScreen = () => {
 
   const renderFooter = () => (
     <View style={styles.footerContainer}>
-      <Text style={styles.missingTitle}>Missing something?</Text>
-      
-      <TouchableOpacity style={styles.referCard}>
-        <View style={styles.referIconContainer}>
-          <Gift color="#FFF" size={20} />
-        </View>
-        <View style={styles.helpTextContainer}>
-          <Text style={styles.helpTitle}>Refer a Friend</Text>
-          <Text style={styles.helpSubtitle}>Get ₹50 off your next order</Text>
-        </View>
-      </TouchableOpacity>
+      <Text style={styles.missingTitle}>{t('missingSomething')}</Text>
 
-      <TouchableOpacity style={styles.supportCard}>
+      <TouchableOpacity style={styles.supportCard} onPress={() => navigation.navigate('HelpSupport')}>
         <View style={styles.supportIconContainer}>
           <HelpCircle color="#FFF" size={20} />
         </View>
         <View style={styles.helpTextContainer}>
-          <Text style={styles.helpTitle}>Support Center</Text>
-          <Text style={styles.helpSubtitle}>Need help with an order?</Text>
+          <Text style={styles.helpTitle}>{t('supportCenter')}</Text>
+          <Text style={styles.helpSubtitle}>{t('needHelpOrder')}</Text>
         </View>
       </TouchableOpacity>
     </View>
@@ -141,13 +128,10 @@ export const OrdersScreen = () => {
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={{padding: 4}}>
-          <Menu color="#006B54" size={26} />
+        <TouchableOpacity style={{padding: 4}} onPress={() => navigation.canGoBack() ? navigation.goBack() : navigation.navigate('MainTabs', { screen: 'Home' })}>
+          <ArrowLeft color={theme.colors.primary} size={24} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Local Shops</Text>
-        <View style={styles.avatarContainer}>
-          <Image source={{ uri: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100' }} style={styles.avatar} />
-        </View>
+        <Text style={styles.headerTitle}>{t('localShopsHeader')}</Text>
       </View>
 
       <FlatList
@@ -156,8 +140,8 @@ export const OrdersScreen = () => {
         renderItem={renderOrderItem}
         ListHeaderComponent={
           <View style={styles.listHeader}>
-            <Text style={styles.pageTitle}>Your Orders</Text>
-            <Text style={styles.pageSubtitle}>Keep track of your local neighborhood purchases</Text>
+            <Text style={styles.pageTitle}>{t('yourOrders')}</Text>
+            <Text style={styles.pageSubtitle}>{t('yourOrdersSub')}</Text>
           </View>
         }
         ListFooterComponent={renderFooter}
@@ -189,7 +173,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     ...theme.typography.title,
     fontSize: 22,
-    color: '#006B54',
+    color: '#15803D',
     flex: 1,
     marginLeft: 16,
   },
@@ -263,7 +247,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   statusPreparing: {
-    backgroundColor: '#81F2AE',
+    backgroundColor: '#DCFCE7',
   },
   statusDelivered: {
     backgroundColor: '#EBEBEB',
@@ -272,7 +256,7 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: 3,
-    backgroundColor: '#006B54',
+    backgroundColor: theme.colors.primary,
     marginRight: 6,
   },
   statusIcon: {
@@ -285,7 +269,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   statusTextPreparing: {
-    color: '#006B54',
+    color: theme.colors.primary,
   },
   statusTextDelivered: {
     color: '#555',
@@ -305,7 +289,7 @@ const styles = StyleSheet.create({
     ...theme.typography.subtitle,
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#006B54',
+    color: theme.colors.primary,
   },
   actionsRow: {
     flexDirection: 'row',
@@ -314,7 +298,7 @@ const styles = StyleSheet.create({
   btnPrimary: {
     flex: 1,
     flexDirection: 'row',
-    backgroundColor: '#006B54',
+    backgroundColor: theme.colors.primary,
     height: 44,
     borderRadius: 12,
     alignItems: 'center',
@@ -360,18 +344,18 @@ const styles = StyleSheet.create({
   referCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F2FBF5',
+    backgroundColor: '#ECFDF5',
     padding: 16,
     borderRadius: 16,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#E8F5E9',
+    borderColor: '#DCFCE7',
   },
   referIconContainer: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#006B54',
+    backgroundColor: theme.colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: 16,
@@ -401,7 +385,7 @@ const styles = StyleSheet.create({
   helpTitle: {
     ...theme.typography.body,
     fontWeight: 'bold',
-    color: '#006B54', // or blue for support, but sticking to general dark
+    color: theme.colors.primary,
     marginBottom: 2,
   },
   helpSubtitle: {

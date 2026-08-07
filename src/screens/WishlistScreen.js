@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import axiosClient from '../api/axiosClient';
 import { theme } from '../theme';
-import { Menu, Heart, ShoppingBag, Plus, Minus } from 'lucide-react-native';
+import { Heart, ShoppingBag, Plus, Minus, ArrowLeft } from 'lucide-react-native';
 import ProductCard from '../components/ProductCard';
 import { getCurrentLocation } from '../utils/location';
 
@@ -47,8 +47,8 @@ export const WishlistScreen = () => {
   });
 
   const addToCartMutation = useMutation({
-    mutationFn: async ({ shopId, productId, quantity }) => {
-      await axiosClient.post(`/cart/${shopId}/items`, { productId, quantity });
+    mutationFn: async ({ shopId, productId, quantity, unit, price }) => {
+      await axiosClient.post(`/cart/${shopId}/items`, { productId, quantity, unit, price });
     },
     onSuccess: () => {
       queryClient.invalidateQueries(['cart']);
@@ -71,14 +71,14 @@ export const WishlistScreen = () => {
   if (isLoading) {
     return (
       <SafeAreaView style={styles.center}>
-        <ActivityIndicator size="large" color="#006B54" />
+        <ActivityIndicator size="large" color={theme.colors.primary} />
       </SafeAreaView>
     );
   }
 
   const renderWishlistCard = ({ item }) => {
     const currentShopCart = Array.isArray(cartData) ? cartData.find(c => c.shop?.id == item.shop_id) : null;
-    const cartItem = currentShopCart?.items?.find(i => i.product_id == item.id);
+    const cartItem = currentShopCart?.items?.find(i => i.product_id == item.id && i.unit === item.unit);
     const quantity = cartItem?.quantity || 0;
 
     return (
@@ -92,7 +92,7 @@ export const WishlistScreen = () => {
             style={styles.heartIconBtn} 
             onPress={() => toggleWishlistMutation.mutate({ productId: item.id, isWishlisted: true })}
           >
-            <Heart color="#006B54" size={20} fill="#006B54" />
+            <Heart color={theme.colors.primary} size={20} fill={theme.colors.primary} />
           </TouchableOpacity>
         </View>
         
@@ -104,24 +104,24 @@ export const WishlistScreen = () => {
             <Text style={styles.productPrice}>₹{parseFloat(item.price).toFixed(2)}</Text>
             {quantity > 0 ? (
               <View style={styles.stepperContainer}>
-                <TouchableOpacity 
-                  style={styles.stepperButtonOutline} 
-                  onPress={() => addToCartMutation.mutate({ shopId: item.shop_id, productId: item.id, quantity: quantity - 1 })}
+                <TouchableOpacity
+                  style={styles.stepperButtonOutline}
+                  onPress={() => addToCartMutation.mutate({ shopId: item.shop_id, productId: item.id, quantity: quantity - 1, unit: item.unit, price: item.price })}
                 >
                   <Minus color="#333" size={16} />
                 </TouchableOpacity>
                 <Text style={styles.stepperText}>{quantity}</Text>
-                <TouchableOpacity 
-                  style={styles.stepperButtonSolid} 
-                  onPress={() => addToCartMutation.mutate({ shopId: item.shop_id, productId: item.id, quantity: quantity + 1 })}
+                <TouchableOpacity
+                  style={styles.stepperButtonSolid}
+                  onPress={() => addToCartMutation.mutate({ shopId: item.shop_id, productId: item.id, quantity: quantity + 1, unit: item.unit, price: item.price })}
                 >
                   <Plus color="#FFF" size={16} />
                 </TouchableOpacity>
               </View>
             ) : (
-              <TouchableOpacity 
+              <TouchableOpacity
                 style={styles.addToCartBtn}
-                onPress={() => addToCartMutation.mutate({ shopId: item.shop_id, productId: item.id, quantity: 1 })}
+                onPress={() => addToCartMutation.mutate({ shopId: item.shop_id, productId: item.id, quantity: 1, unit: item.unit, price: item.price })}
               >
                 <ShoppingBag color="#FFF" size={14} style={{marginRight: 6}} />
                 <Text style={styles.addToCartText}>Add to Cart</Text>
@@ -135,15 +135,15 @@ export const WishlistScreen = () => {
 
   const renderRecommendation = ({ item }) => {
     const currentShopCart = Array.isArray(cartData) ? cartData.find(c => c.shop?.id == item.shop_id) : null;
-    const cartItem = currentShopCart?.items?.find(i => i.product_id == item.id);
+    const cartItems = currentShopCart?.items?.filter(i => i.product_id == item.id) || [];
     const isWishlisted = Array.isArray(wishlistItems) ? wishlistItems.some(w => w.id === item.id) : false;
 
     return (
       <ProductCard 
         style={{ maxWidth: '100%', width: 170, marginRight: 8 }}
         product={item} 
-        cartItem={cartItem} 
-        onQtyChange={(productId, qty) => addToCartMutation.mutate({ shopId: item.shop_id, productId, quantity: qty })}
+        cartItems={cartItems} 
+        onQtyChange={(productId, qty, unit, price) => addToCartMutation.mutate({ shopId: item.shop_id, productId, quantity: qty, unit, price })}
         isWishlisted={isWishlisted}
         onWishlistToggle={(productId, currentStatus) => toggleWishlistMutation.mutate({ productId, isWishlisted: currentStatus })}
       />
@@ -154,13 +154,10 @@ export const WishlistScreen = () => {
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={{padding: 4}}>
-          <Menu color="#006B54" size={26} />
+        <TouchableOpacity style={{padding: 4}} onPress={() => navigation.goBack()}>
+          <ArrowLeft color={theme.colors.primary} size={24} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Local Shops</Text>
-        <View style={styles.avatarContainer}>
-          <Image source={{ uri: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100' }} style={styles.avatar} />
-        </View>
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
@@ -221,7 +218,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     ...theme.typography.title,
     fontSize: 22,
-    color: '#006B54',
+    color: '#15803D',
     flex: 1,
     marginLeft: 16,
   },
@@ -245,7 +242,7 @@ const styles = StyleSheet.create({
   heroTitle: {
     ...theme.typography.title,
     fontSize: 24,
-    color: '#006B54',
+    color: '#15803D',
     marginBottom: 8,
   },
   heroSubtitle: {
@@ -293,7 +290,7 @@ const styles = StyleSheet.create({
   },
   shopName: {
     ...theme.typography.caption,
-    color: '#006B54',
+    color: theme.colors.primary,
     fontWeight: 'bold',
     textTransform: 'uppercase',
     marginBottom: 4,
@@ -312,11 +309,11 @@ const styles = StyleSheet.create({
   },
   productPrice: {
     ...theme.typography.title,
-    color: '#006B54',
+    color: theme.colors.primary,
     fontSize: 18,
   },
   addToCartBtn: {
-    backgroundColor: '#006B54',
+    backgroundColor: theme.colors.primary,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 16,
@@ -351,7 +348,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#006B54',
+    backgroundColor: theme.colors.primary,
   },
   stepperText: {
     fontWeight: '600',
@@ -407,7 +404,7 @@ const styles = StyleSheet.create({
   },
   recommendationPrice: {
     ...theme.typography.caption,
-    color: '#006B54',
+    color: theme.colors.primary,
     fontWeight: 'bold',
   }
 });

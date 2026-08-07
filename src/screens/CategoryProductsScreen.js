@@ -6,6 +6,7 @@ import { theme } from '../theme';
 import ProductCard from '../components/ProductCard';
 import { ArrowLeft, Search } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
+import { getCartItemTotal } from '../utils/cartPricing';
 
 export const CategoryProductsScreen = ({ route }) => {
   const { id: shopId, categoryName, subCategories = [] } = route.params;
@@ -35,8 +36,8 @@ export const CategoryProductsScreen = ({ route }) => {
   });
 
   const addToCartMutation = useMutation({
-    mutationFn: async ({ productId, quantity }) => {
-      await axiosClient.post(`/cart/${shopId}/items`, { productId, quantity });
+    mutationFn: async ({ productId, quantity, unit, price }) => {
+      await axiosClient.post(`/cart/${shopId}/items`, { productId, quantity, unit, price });
     },
     onSuccess: () => {
       queryClient.invalidateQueries(['cart']);
@@ -45,7 +46,7 @@ export const CategoryProductsScreen = ({ route }) => {
 
   const currentShopCart = cartData?.carts?.find(c => c.shop?.id === parseInt(shopId));
   const cartItemsCount = currentShopCart?.items?.reduce((sum, item) => sum + item.quantity, 0) || 0;
-  const cartTotal = currentShopCart?.items?.reduce((sum, item) => sum + (item.quantity * parseFloat(item.price)), 0) || 0;
+  const cartTotal = currentShopCart?.items?.reduce((sum, item) => sum + getCartItemTotal(item), 0) || 0;
 
   const renderHeader = () => (
     <View style={styles.headerWrapper}>
@@ -57,12 +58,9 @@ export const CategoryProductsScreen = ({ route }) => {
         <Text style={styles.navTitle}>{categoryName}</Text>
         
         <View style={styles.rightIcons}>
-          <TouchableOpacity style={{marginRight: 16}}>
+          <TouchableOpacity>
             <Search color={theme.colors.primary} size={20} />
           </TouchableOpacity>
-          <View style={styles.avatarContainer}>
-            <Image source={{ uri: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100' }} style={styles.avatar} />
-          </View>
         </View>
       </View>
 
@@ -100,12 +98,12 @@ export const CategoryProductsScreen = ({ route }) => {
         contentContainerStyle={styles.listContent}
         columnWrapperStyle={styles.columnWrapper}
         renderItem={({ item }) => {
-          const cartItem = currentShopCart?.items?.find(i => i.product_id === item.id);
+          const cartItems = currentShopCart?.items?.filter(i => i.product_id === item.id) || [];
           return (
             <ProductCard
               product={item}
-              cartItem={cartItem}
-              onQtyChange={(productId, quantity) => addToCartMutation.mutate({ productId, quantity })}
+              cartItems={cartItems}
+              onQtyChange={(productId, quantity, unit, price) => addToCartMutation.mutate({ productId, quantity, unit, price })}
             />
           );
         }}
@@ -167,7 +165,7 @@ const styles = StyleSheet.create({
     marginRight: theme.spacing.s,
   },
   activeTab: {
-    backgroundColor: '#006B54',
+    backgroundColor: theme.colors.primary,
   },
   inactiveTab: {
     backgroundColor: theme.colors.border,

@@ -1,17 +1,18 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView, Alert, TextInput, Image, SafeAreaView, Platform, StatusBar } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator, ScrollView, Alert, Image, SafeAreaView, Platform, StatusBar } from 'react-native';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import axiosClient from '../api/axiosClient';
 import { theme } from '../theme';
-import { ArrowLeft, MapPin, CreditCard, Receipt, Tag, ChevronDown, CheckCircle2, Circle, Book } from 'lucide-react-native';
+import { ArrowLeft, MapPin, CreditCard, Receipt, ChevronDown, CheckCircle2, Circle, Book } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { getCartItemTotal, getCartItemQuantityLabel } from '../utils/cartPricing';
+import { useTranslation } from '../utils/translations';
 
 export const CheckoutScreen = ({ route, navigation }) => {
   const { shopId, cartId } = route.params;
   const queryClient = useQueryClient();
-  const [selectedAddressId, setSelectedAddressId] = useState(null);
+  const t = useTranslation();
   const [paymentMethod, setPaymentMethod] = useState('upi');
-  const [upiId, setUpiId] = useState('');
   const insets = useSafeAreaInsets();
 
   const { data: addresses, isLoading: isLoadingAddresses } = useQuery({
@@ -22,12 +23,20 @@ export const CheckoutScreen = ({ route, navigation }) => {
     }
   });
 
-  React.useEffect(() => {
-    if (addresses && addresses.length > 0 && !selectedAddressId) {
-      const defaultAddr = addresses.find(a => a.is_default);
-      setSelectedAddressId(defaultAddr ? defaultAddr.id : addresses[0].id);
-    }
-  }, [addresses]);
+  const setDeliveryAddressMutation = useMutation({
+    mutationFn: async (address) => {
+      await axiosClient.put(`/addresses/${address.id}`, {
+        label: address.label,
+        line1: address.line1,
+        line2: address.line2,
+        pincode: address.pincode,
+        lat: address.latitude,
+        lng: address.longitude,
+        is_default: true,
+      });
+    },
+    onSuccess: () => queryClient.invalidateQueries(['addresses'])
+  });
 
   const { data: cartsData, isLoading: isLoadingCart } = useQuery({
     queryKey: ['cart'],
@@ -45,11 +54,11 @@ export const CheckoutScreen = ({ route, navigation }) => {
     onSuccess: (data) => {
       queryClient.invalidateQueries(['cart']);
       queryClient.invalidateQueries(['orders']);
-      if (paymentMethod === 'upi') {
-        navigation.navigate('UpiPayment', { orderId: data.orderId, orderNumber: data.orderNumber, total });
-      } else {
-        navigation.navigate('OrderConfirmation', { orderNumber: data.orderNumber });
-      }
+      navigation.navigate('OrderConfirmation', { 
+        id: data.orderId, 
+        orderId: data.orderId, 
+        orderNumber: data.orderNumber 
+      });
     },
     onError: (err) => {
       Alert.alert('Checkout Failed', err.response?.data?.message || err.message);
@@ -73,26 +82,23 @@ export const CheckoutScreen = ({ route, navigation }) => {
     );
   }
 
+  const selectedAddressId = addresses?.find(a => a.is_default)?.id ?? addresses?.[0]?.id ?? null;
+
   let subtotal = 0;
   activeCart.items.forEach(item => {
-    subtotal += (parseFloat(item.price) * item.quantity);
+    subtotal += getCartItemTotal(item);
   });
   
   const deliveryFee = 0.00;
   const taxes = subtotal * 0.05; // 5% tax
-  const promoDiscount = 50.00;
-  const total = (subtotal + deliveryFee + taxes) - promoDiscount;
+  const total = subtotal + deliveryFee + taxes;
 
   const handlePlaceOrder = () => {
     if (!selectedAddressId) {
       Alert.alert('Error', 'Please select a delivery address');
       return;
     }
-    if (paymentMethod === 'upi' && !upiId) {
-      Alert.alert('Error', 'Please enter a UPI ID');
-      return;
-    }
-    placeOrderMutation.mutate({ shopId, addressId: selectedAddressId, payment_method: paymentMethod });
+    placeOrderMutation.mutate({ shopId, addressId: selectedAddressId, payment_method: paymentMethod, note: activeCart.note });
   };
 
   return (
@@ -102,28 +108,37 @@ export const CheckoutScreen = ({ route, navigation }) => {
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <ArrowLeft color="#1D6B35" size={24} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Checkout</Text>
+        <Text style={styles.headerTitle}>{t('checkoutHeader')}</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         
         {/* Delivery Address Section */}
         <View style={styles.card}>
-          <View style={styles.cardHeader}>
+          <View style={[styles.cardHeader, { marginBottom: 4 }]}>
             <View style={{flexDirection: 'row', alignItems: 'center'}}>
-              <MapPin color="#006B54" size={20} style={{marginRight: 8}} />
-              <Text style={styles.cardTitle}>Select Delivery Address</Text>
+              <MapPin color={theme.colors.primary} size={20} style={{marginRight: 8}} />
+              <Text style={styles.cardTitle}>{t('selectDeliveryAddress')}</Text>
             </View>
-            <TouchableOpacity onPress={() => navigation.navigate('AddressMapPicker')}><Text style={styles.addText}>Add New</Text></TouchableOpacity>
           </View>
-          
+          <View style={styles.addressActionsRow}>
+            {addresses?.length > 0 && (
+              <TouchableOpacity onPress={() => navigation.navigate('AddressList')} style={styles.addressActionBtn}>
+                <Text style={styles.addressActionText}>{t('changeBtn')}</Text>
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity onPress={() => navigation.navigate('AddressMapPicker')} style={[styles.addressActionBtn, styles.addressActionBtnPrimary]}>
+              <Text style={[styles.addressActionText, styles.addressActionTextPrimary]}>{t('addNewBtn')}</Text>
+            </TouchableOpacity>
+          </View>
+
           {addresses?.map(addr => {
             const isSelected = selectedAddressId === addr.id;
             return (
-              <TouchableOpacity 
+              <TouchableOpacity
                 key={addr.id}
                 style={[styles.addressItem, isSelected && styles.addressItemSelected]}
-                onPress={() => setSelectedAddressId(addr.id)}
+                onPress={() => setDeliveryAddressMutation.mutate(addr)}
               >
                 <View style={styles.addressPill}>
                   <Text style={styles.addressPillText}>{addr.label}</Text>
@@ -140,8 +155,8 @@ export const CheckoutScreen = ({ route, navigation }) => {
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <View style={{flexDirection: 'row', alignItems: 'center'}}>
-              <CreditCard color="#006B54" size={20} style={{marginRight: 8}} />
-              <Text style={styles.cardTitle}>Payment Method</Text>
+              <CreditCard color={theme.colors.primary} size={20} style={{marginRight: 8}} />
+              <Text style={styles.cardTitle}>{t('paymentMethod')}</Text>
             </View>
           </View>
 
@@ -152,35 +167,15 @@ export const CheckoutScreen = ({ route, navigation }) => {
           >
             <View style={styles.paymentRow}>
               {paymentMethod === 'upi' ? (
-                <CheckCircle2 color="#006B54" size={24} />
+                <CheckCircle2 color={theme.colors.primary} size={24} />
               ) : (
                 <Circle color={theme.colors.border} size={24} />
               )}
               <View style={styles.paymentInfo}>
-                <Text style={styles.paymentTitle}>UPI (Google Pay, PhonePe, Paytm)</Text>
-                <Text style={styles.paymentSub}>Instant payment using your UPI ID</Text>
-              </View>
-              {/* Dummy app icons row */}
-              <View style={{flexDirection: 'row'}}>
-                <View style={styles.dummyIcon}><Text style={{fontSize: 8}}>G</Text></View>
-                <View style={styles.dummyIcon}><Text style={{fontSize: 8}}>P</Text></View>
+                <Text style={styles.paymentTitle}>{t('onlinePayment')}</Text>
+                <Text style={styles.paymentSub}>{t('instantPaymentUPI')}</Text>
               </View>
             </View>
-            
-            {paymentMethod === 'upi' && (
-              <View style={styles.upiInputRow}>
-                <TextInput 
-                  style={styles.upiInput}
-                  placeholder="Enter UPI ID (e.g. name@bank)"
-                  placeholderTextColor="#999"
-                  value={upiId}
-                  onChangeText={setUpiId}
-                />
-                <TouchableOpacity style={styles.verifyBtn}>
-                  <Text style={styles.verifyText}>Verify</Text>
-                </TouchableOpacity>
-              </View>
-            )}
           </TouchableOpacity>
 
           {/* COD Option */}
@@ -190,13 +185,13 @@ export const CheckoutScreen = ({ route, navigation }) => {
           >
             <View style={styles.paymentRow}>
               {paymentMethod === 'cod' ? (
-                <CheckCircle2 color="#006B54" size={24} />
+                <CheckCircle2 color={theme.colors.primary} size={24} />
               ) : (
                 <Circle color={theme.colors.border} size={24} />
               )}
               <View style={styles.paymentInfo}>
-                <Text style={styles.paymentTitle}>Cash on Delivery</Text>
-                <Text style={styles.paymentSub}>Pay when your order arrives</Text>
+                <Text style={styles.paymentTitle}>{t('cashOnDelivery')}</Text>
+                <Text style={styles.paymentSub}>{t('payWhenArrives')}</Text>
               </View>
               <Receipt color={theme.colors.textLight} size={24} />
             </View>
@@ -204,18 +199,18 @@ export const CheckoutScreen = ({ route, navigation }) => {
 
           {/* Udhar / Khata Option */}
           <TouchableOpacity 
-            style={[styles.paymentItem, paymentMethod === 'udhar' && styles.paymentItemSelected, { borderBottomWidth: 0 }]}
+            style={[styles.paymentItem, paymentMethod === 'udhar' && styles.paymentItemSelected]}
             onPress={() => setPaymentMethod('udhar')}
           >
             <View style={styles.paymentRow}>
               {paymentMethod === 'udhar' ? (
-                <CheckCircle2 color="#006B54" size={24} />
+                <CheckCircle2 color={theme.colors.primary} size={24} />
               ) : (
                 <Circle color={theme.colors.border} size={24} />
               )}
               <View style={styles.paymentInfo}>
-                <Text style={styles.paymentTitle}>Udhar / Khata</Text>
-                <Text style={styles.paymentSub}>Buy now, pay later (Pending Shop Approval)</Text>
+                <Text style={styles.paymentTitle}>{t('udharKhata')}</Text>
+                <Text style={styles.paymentSub}>{t('pendingApproval')}</Text>
               </View>
               <Book color={theme.colors.textLight} size={24} />
             </View>
@@ -226,8 +221,8 @@ export const CheckoutScreen = ({ route, navigation }) => {
         <View style={styles.card}>
           <View style={styles.cardHeader}>
             <View style={{flexDirection: 'row', alignItems: 'center'}}>
-              <Receipt color="#006B54" size={20} style={{marginRight: 8}} />
-              <Text style={styles.cardTitle}>Order Summary</Text>
+              <Receipt color={theme.colors.primary} size={20} style={{marginRight: 8}} />
+              <Text style={styles.cardTitle}>{t('orderSummary')}</Text>
             </View>
             <ChevronDown color={theme.colors.text} size={20} />
           </View>
@@ -238,48 +233,37 @@ export const CheckoutScreen = ({ route, navigation }) => {
                 <Image source={{uri: item.image_url || 'https://images.unsplash.com/photo-1592924357228-91a4daadcfea?w=100'}} style={styles.orderItemImg} />
                 <View style={styles.orderItemInfo}>
                   <Text style={styles.orderItemName} numberOfLines={2}>{item.name}</Text>
-                  <Text style={styles.orderItemQty}>Qty: {item.quantity}</Text>
+                  <Text style={styles.orderItemQty}>{t('qty', { qty: getCartItemQuantityLabel(item) })}</Text>
+                  {!!item.note && (
+                    <Text style={styles.orderItemNote} numberOfLines={1}>{t('note', { note: item.note })}</Text>
+                  )}
                 </View>
-                <Text style={styles.orderItemPrice}>₹{item.price}</Text>
+                <Text style={styles.orderItemPrice}>₹{getCartItemTotal(item).toFixed(2)}</Text>
               </View>
             ))}
           </View>
 
           <View style={styles.summaryLines}>
             <View style={styles.summaryLine}>
-              <Text style={styles.summaryLineLabel}>Subtotal</Text>
+              <Text style={styles.summaryLineLabel}>{t('subtotal')}</Text>
               <Text style={styles.summaryLineValue}>₹{subtotal.toFixed(2)}</Text>
             </View>
             <View style={styles.summaryLine}>
-              <Text style={styles.summaryLineLabel}>Delivery Fee</Text>
-              <Text style={[styles.summaryLineValue, {color: '#006B54', fontWeight: 'bold'}]}>FREE</Text>
+              <Text style={styles.summaryLineLabel}>{t('deliveryFee')}</Text>
+              <Text style={[styles.summaryLineValue, {color: theme.colors.primary, fontWeight: 'bold'}]}>{t('free')}</Text>
             </View>
             <View style={styles.summaryLine}>
-              <Text style={styles.summaryLineLabel}>Taxes & Charges</Text>
+              <Text style={styles.summaryLineLabel}>{t('taxes')}</Text>
               <Text style={styles.summaryLineValue}>₹{taxes.toFixed(2)}</Text>
             </View>
           </View>
 
           <View style={styles.totalLine}>
-            <Text style={styles.totalTitle}>Total Amount</Text>
+            <Text style={styles.totalTitle}>{t('totalAmountLabel')}</Text>
             <Text style={styles.totalValue}>₹{total.toFixed(2)}</Text>
           </View>
         </View>
 
-        {/* Promo Code Pill */}
-        <View style={styles.promoCard}>
-          <View style={{flexDirection: 'row', alignItems: 'center'}}>
-            <Tag color="#006B54" size={20} style={{marginRight: 12, transform: [{rotate: '90deg'}]}} />
-            <View>
-              <Text style={styles.promoTitle}>LOCALFIRST applied</Text>
-              <Text style={styles.promoSub}>You saved ₹50 on this order!</Text>
-            </View>
-          </View>
-          <TouchableOpacity>
-            <Text style={styles.promoRemove}>Remove</Text>
-          </TouchableOpacity>
-        </View>
-        
         {/* Spacer for bottom sticky button */}
         <View style={{height: 100 + insets.bottom}} /> 
       </ScrollView>
@@ -295,12 +279,12 @@ export const CheckoutScreen = ({ route, navigation }) => {
             <ActivityIndicator color="#FFF" />
           ) : (
             <>
-              <Text style={styles.placeOrderText}>Place Order</Text>
+              <Text style={styles.placeOrderText}>{t('placeOrder')}</Text>
               <ArrowRight color="#FFF" size={20} style={{marginLeft: 8}} />
             </>
           )}
         </TouchableOpacity>
-        <Text style={styles.footerNote}>100% Safe & Secure Payments</Text>
+        <Text style={styles.footerNote}>{t('safeSecurePayments')}</Text>
       </View>
     </SafeAreaView>
   );
@@ -355,9 +339,32 @@ const styles = StyleSheet.create({
     fontSize: 18,
   },
   addText: {
-    color: '#006B54',
+    color: theme.colors.primary,
     fontWeight: 'bold',
     fontSize: 14,
+  },
+  addressActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginBottom: 12,
+    gap: 8,
+  },
+  addressActionBtn: {
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+  },
+  addressActionBtnPrimary: {
+    backgroundColor: theme.colors.primary,
+  },
+  addressActionText: {
+    color: theme.colors.primary,
+    fontWeight: '600',
+    fontSize: 12,
+  },
+  addressActionTextPrimary: {
+    color: '#FFF',
   },
   addressItem: {
     borderWidth: 1,
@@ -367,8 +374,8 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.s,
   },
   addressItemSelected: {
-    borderColor: '#006B54',
-    backgroundColor: '#F2FBF5',
+    borderColor: theme.colors.primary,
+    backgroundColor: '#ECFDF5',
   },
   addressPill: {
     backgroundColor: '#EBEBEB',
@@ -405,7 +412,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   paymentItemSelected: {
-    borderColor: '#006B54',
+    borderColor: theme.colors.primary,
   },
   paymentRow: {
     flexDirection: 'row',
@@ -425,15 +432,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 2,
   },
-  dummyIcon: {
-    width: 24,
-    height: 24,
-    backgroundColor: '#EEE',
-    borderRadius: 4,
-    marginLeft: 4,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
   upiInputRow: {
     flexDirection: 'row',
     marginTop: 16,
@@ -447,9 +445,10 @@ const styles = StyleSheet.create({
     height: 40,
     fontSize: 13,
     color: '#333',
+    textAlignVertical: 'center',
   },
   verifyBtn: {
-    backgroundColor: '#006B54',
+    backgroundColor: theme.colors.primary,
     borderRadius: 8,
     paddingHorizontal: 16,
     justifyContent: 'center',
@@ -485,6 +484,12 @@ const styles = StyleSheet.create({
   },
   orderItemQty: {
     ...theme.typography.caption,
+    marginTop: 2,
+  },
+  orderItemNote: {
+    ...theme.typography.caption,
+    fontStyle: 'italic',
+    color: theme.colors.textLight,
     marginTop: 2,
   },
   orderItemPrice: {
@@ -524,33 +529,7 @@ const styles = StyleSheet.create({
   totalValue: {
     ...theme.typography.title,
     fontSize: 20,
-    color: '#006B54',
-  },
-  promoCard: {
-    flexDirection: 'row',
-    backgroundColor: '#FFF',
-    borderRadius: 16,
-    padding: 16,
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderWidth: 1,
-    borderColor: '#E8F5E9',
-  },
-  promoTitle: {
-    ...theme.typography.body,
-    fontWeight: 'bold',
-    color: '#333',
-  },
-  promoSub: {
-    ...theme.typography.caption,
-    color: '#006B54',
-    fontWeight: '600',
-    marginTop: 2,
-  },
-  promoRemove: {
-    color: '#D32F2F',
-    fontWeight: 'bold',
-    fontSize: 12,
+    color: theme.colors.primary,
   },
   stickyFooter: {
     position: 'absolute',
@@ -563,7 +542,7 @@ const styles = StyleSheet.create({
   },
   placeOrderBtn: {
     flexDirection: 'row',
-    backgroundColor: '#006B54',
+    backgroundColor: theme.colors.primary,
     borderRadius: 16,
     height: 56,
     alignItems: 'center',

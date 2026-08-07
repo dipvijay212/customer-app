@@ -50,17 +50,20 @@ export const authService = {
   /**
    * Mock endpoint for POST /api/auth/customer/profile
    */
-  createProfile: async ({ phone, name, email, language }) => {
+  createProfile: async ({ phone, name, email, address, dob, gender, language }) => {
     await delay(1000); // Simulate network delay
-    
+
     const customersJson = await AsyncStorage.getItem('mock_customers');
     const customers = customersJson ? JSON.parse(customersJson) : [];
-    
+
     const newCustomer = {
       id: `cust_${Date.now()}`,
       phone,
       name,
       email: email || '',
+      address: address || '',
+      dob: dob || '',
+      gender: gender || '',
       language: language || 'en',
       createdAt: new Date().toISOString()
     };

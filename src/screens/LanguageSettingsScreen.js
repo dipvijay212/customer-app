@@ -1,21 +1,35 @@
-import React, { useState } from 'react';
+import React, { useState, useContext } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Platform, StatusBar, FlatList } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft, Check } from 'lucide-react-native';
+import Toast from 'react-native-toast-message';
 import { theme } from '../theme';
+import { AuthContext } from '../context/AuthContext';
+import { useTranslation } from '../utils/translations';
 
 export const LanguageSettingsScreen = () => {
   const navigation = useNavigation();
-  const [selectedLang, setSelectedLang] = useState('en');
+  const insets = useSafeAreaInsets();
+  const { appLanguage, changeLanguage } = useContext(AuthContext);
+  const t = useTranslation();
+  const [selectedLang, setSelectedLang] = useState(appLanguage || 'en');
 
   const languages = [
-    { id: 'en', name: 'English', nativeName: 'English' },
-    { id: 'hi', name: 'Hindi', nativeName: 'हिन्दी' },
-    { id: 'gu', name: 'Gujarati', nativeName: 'ગુજરાતી' },
+    { id: 'en', name: 'English', nativeName: 'English', flag: '🇬🇧' },
+    { id: 'hi', name: 'Hindi', nativeName: 'हिन्दी', flag: '🇮🇳' },
+    { id: 'gu', name: 'Gujarati', nativeName: 'ગુજરાતી', flag: '🇮🇳' },
   ];
 
   const handleSave = () => {
-    // In a real app, save to async storage, update context/i18n instance
+    if (changeLanguage) {
+      changeLanguage(selectedLang);
+    }
+    Toast.show({
+      type: 'success',
+      text1: t('languageChangedTitle'),
+      text2: t('languageChangedMsg', { lang: languages.find(l => l.id === selectedLang)?.nativeName || selectedLang })
+    });
     navigation.goBack();
   };
 
@@ -26,11 +40,17 @@ export const LanguageSettingsScreen = () => {
       <TouchableOpacity 
         style={[styles.langRow, isSelected && styles.langRowSelected]}
         onPress={() => setSelectedLang(item.id)}
+        activeOpacity={0.8}
       >
+        <View style={styles.flagContainer}>
+          <Text style={styles.flagEmoji}>{item.flag}</Text>
+        </View>
+
         <View style={styles.langInfo}>
           <Text style={styles.langName}>{item.nativeName}</Text>
           <Text style={styles.langSub}>{item.name}</Text>
         </View>
+
         {isSelected && (
           <View style={styles.checkIcon}>
             <Check color={theme.colors.primary} size={20} />
@@ -40,18 +60,20 @@ export const LanguageSettingsScreen = () => {
     );
   };
 
+  const bottomFooterPadding = Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 16) + 12;
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} activeOpacity={0.7}>
           <ArrowLeft color="#1A1A1A" size={24} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Language Settings</Text>
+        <Text style={styles.headerTitle}>{t('languageSettingsHeader')}</Text>
         <View style={{ width: 24 }} />
       </View>
 
       <View style={styles.content}>
-        <Text style={styles.instruction}>Select your preferred language</Text>
+        <Text style={styles.instruction}>{t('selectLanguageInstruction')}</Text>
         
         <FlatList
           data={languages}
@@ -61,9 +83,9 @@ export const LanguageSettingsScreen = () => {
         />
       </View>
 
-      <View style={styles.footer}>
-        <TouchableOpacity style={styles.saveBtn} onPress={handleSave}>
-          <Text style={styles.saveBtnText}>Save Language</Text>
+      <View style={[styles.footer, { paddingBottom: bottomFooterPadding }]}>
+        <TouchableOpacity style={styles.saveBtn} onPress={handleSave} activeOpacity={0.85}>
+          <Text style={styles.saveBtnText}>{t('saveLanguageBtn')}</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -120,6 +142,18 @@ const styles = StyleSheet.create({
     borderColor: theme.colors.primary,
     backgroundColor: '#F0FFF4',
   },
+  flagContainer: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  flagEmoji: {
+    fontSize: 22,
+  },
   langInfo: {
     flex: 1,
   },
@@ -138,14 +172,14 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   footer: {
-    padding: 24,
-    paddingBottom: Platform.OS === 'ios' ? 34 : 24,
+    paddingHorizontal: 24,
+    paddingTop: 16,
     borderTopWidth: 1,
     borderTopColor: '#F0F0F0',
     backgroundColor: '#FFF',
   },
   saveBtn: {
-    backgroundColor: '#006B54',
+    backgroundColor: theme.colors.primary,
     height: 56,
     borderRadius: 16,
     alignItems: 'center',

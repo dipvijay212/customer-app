@@ -6,6 +6,9 @@ import { NavigationContainer } from '@react-navigation/native';
 import { RootNavigator } from './src/navigation/RootNavigator';
 import { AuthProvider } from './src/context/AuthContext';
 
+// Disable all notification toast popups globally across the entire app
+Toast.show = () => {};
+
 const queryClient = new QueryClient();
 
 const linking = {
@@ -24,7 +27,6 @@ const App = () => {
         <SafeAreaProvider>
           <NavigationContainer linking={linking}>
             <RootNavigator />
-            <Toast />
           </NavigationContainer>
         </SafeAreaProvider>
       </AuthProvider>

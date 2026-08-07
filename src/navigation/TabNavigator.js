@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, Platform } from 'react-native';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import { Home, Search, ShoppingCart, List, User, WifiOff } from 'lucide-react-native';
+import { Home, Search, ShoppingCart, Menu, WifiOff } from 'lucide-react-native';
 import { useQuery } from '@tanstack/react-query';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AuthContext } from '../context/AuthContext';
@@ -9,14 +9,15 @@ import axiosClient from '../api/axiosClient';
 import { HomeScreen } from '../screens/HomeScreen';
 import { ExploreScreen } from '../screens/ExploreScreen';
 import { BasketScreen } from '../screens/BasketScreen';
-import { OrdersScreen } from '../screens/OrdersScreen';
-import { ProfileScreen } from '../screens/ProfileScreen';
+import { MoreScreen } from '../screens/MoreScreen';
 import { theme } from '../theme';
+import { useTranslation } from '../utils/translations';
 
 const Tab = createBottomTabNavigator();
 
 export const TabNavigator = () => {
   const { isOffline } = React.useContext(AuthContext);
+  const t = useTranslation();
   const insets = useSafeAreaInsets();
 
   const { data: cartData } = useQuery({
@@ -39,88 +40,86 @@ export const TabNavigator = () => {
           <Text style={{ color: '#FFF', fontSize: 12, fontWeight: '600', marginLeft: 8 }}>You're currently offline.</Text>
         </View>
       )}
-    <Tab.Navigator
-    screenOptions={({ route }) => ({
-      headerShown: false,
-      tabBarShowLabel: false,
-      tabBarStyle: {
-        backgroundColor: theme.colors.surface,
-        borderTopWidth: 1,
-        borderTopColor: theme.colors.border,
-        height: 55 + Math.max(insets.bottom, Platform.OS === 'android' ? 10 : 20),
-        paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 10 : 20),
-        paddingTop: 10,
-      },
-      tabBarIcon: ({ focused }) => {
-        let IconComponent;
-        let label = route.name;
-        switch (route.name) {
-          case 'Home': IconComponent = Home; break;
-          case 'Explore': IconComponent = Search; break;
-          case 'Basket': IconComponent = ShoppingCart; break;
-          case 'Orders': IconComponent = List; break;
-          case 'Profile': IconComponent = User; break;
-          default: IconComponent = Home;
-        }
-        
-        return (
-          <View style={{
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: focused ? theme.colors.primary : 'transparent',
-            paddingVertical: 6,
-            paddingHorizontal: 8,
-            borderRadius: 16,
-            minWidth: 50,
-          }}>
-            <View>
-              <IconComponent 
-                color={focused ? '#FFF' : theme.colors.textLight} 
-                size={20} 
-              />
-              {route.name === 'Basket' && totalCartItems > 0 && (
-                <View style={{
-                  position: 'absolute',
-                  top: -8,
-                  right: -12,
-                  backgroundColor: theme.colors.error || '#E53935',
-                  borderRadius: 10,
-                  minWidth: 16,
-                  height: 16,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  paddingHorizontal: 4,
-                  borderWidth: 1.5,
-                  borderColor: focused ? theme.colors.primary : theme.colors.surface,
-                }}>
-                  <Text style={{ color: '#FFF', fontSize: 9, fontWeight: 'bold' }}>
-                    {totalCartItems > 99 ? '99+' : totalCartItems}
-                  </Text>
-                </View>
-              )}
-            </View>
-            <Text 
-              numberOfLines={1}
-              style={{
-                fontSize: 10,
-                marginTop: 4,
-                fontWeight: focused ? 'bold' : '500',
-                color: focused ? '#FFF' : theme.colors.textLight,
-              }}
-            >
-              {label}
-            </Text>
-          </View>
-        );
-      },
-    })}
-  >
-    <Tab.Screen name="Home" component={HomeScreen} />
-    <Tab.Screen name="Explore" component={ExploreScreen} />
-    <Tab.Screen name="Basket" component={BasketScreen} />
-    <Tab.Screen name="Orders" component={OrdersScreen} />
-    <Tab.Screen name="Profile" component={ProfileScreen} />
-  </Tab.Navigator>
+      <Tab.Navigator
+        screenOptions={({ route }) => ({
+          headerShown: false,
+          tabBarShowLabel: true,
+          tabBarActiveTintColor: theme.colors.primary,
+          tabBarInactiveTintColor: '#64748B',
+          tabBarStyle: {
+            backgroundColor: '#FFFFFF',
+            borderTopWidth: 1,
+            borderTopColor: '#F1F5F9',
+            height: 64 + Math.max(insets.bottom + 12, Platform.OS === 'android' ? 24 : 16),
+            paddingBottom: Math.max(insets.bottom + 12, Platform.OS === 'android' ? 24 : 16),
+            paddingTop: 10,
+            elevation: 8,
+            shadowColor: '#000',
+            shadowOffset: { width: 0, height: -2 },
+            shadowOpacity: 0.05,
+            shadowRadius: 4,
+          },
+          tabBarLabelStyle: {
+            fontSize: 11,
+            fontWeight: '700',
+            marginTop: 2,
+            marginBottom: 2,
+          },
+          tabBarIcon: ({ focused }) => {
+            let IconComponent;
+            switch (route.name) {
+              case 'Home': IconComponent = Home; break;
+              case 'Explore': IconComponent = Search; break;
+              case 'Basket': IconComponent = ShoppingCart; break;
+              case 'More': IconComponent = Menu; break;
+              default: IconComponent = Home;
+            }
+            
+            return (
+              <View style={{
+                alignItems: 'center',
+                justifyContent: 'center',
+                width: 44,
+                height: 28,
+                borderRadius: 14,
+                backgroundColor: focused ? '#ECFDF5' : 'transparent',
+              }}>
+                <IconComponent 
+                  color={focused ? theme.colors.primary : '#64748B'} 
+                  size={22} 
+                />
+                {route.name === 'Basket' && totalCartItems > 0 && (
+                  <View style={{
+                    position: 'absolute',
+                    top: -4,
+                    right: -4,
+                    backgroundColor: '#EF4444',
+                    borderRadius: 9,
+                    minWidth: 16,
+                    height: 16,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    paddingHorizontal: 4,
+                    borderWidth: 1.5,
+                    borderColor: '#FFFFFF',
+                  }}>
+                    <Text style={{ color: '#FFF', fontSize: 9, fontWeight: 'bold' }}>
+                      {totalCartItems > 99 ? '99+' : totalCartItems}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            );
+          },
+        })}
+      >
+        <Tab.Screen name="Home" component={HomeScreen} options={{ tabBarLabel: t('homeTab') }} />
+        <Tab.Screen name="Explore" component={ExploreScreen} options={{ tabBarLabel: t('exploreTab') }} />
+        <Tab.Screen name="Basket" component={BasketScreen} options={{ tabBarLabel: t('basketTab') }} />
+        <Tab.Screen name="More" component={MoreScreen} options={{ tabBarLabel: t('moreTab') }} />
+      </Tab.Navigator>
     </View>
   );
 };
+
+export default TabNavigator;

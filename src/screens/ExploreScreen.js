@@ -1,25 +1,100 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, ActivityIndicator, SafeAreaView, Platform, StatusBar, ScrollView, Image, Alert } from 'react-native';
-import { Map, Camera, Marker, UserLocation } from '@maplibre/maplibre-react-native';
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import Svg, { Circle, Image as SvgImage, ClipPath, Defs } from 'react-native-svg';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import axiosClient from '../api/axiosClient';
 import { ensureLocationReady } from '../utils/locationHelper';
 import { theme } from '../theme';
-import { Search, LayoutGrid, Crosshair, Store, MapPin, Star, X, Navigation } from 'lucide-react-native';
+import { Search, LayoutGrid, Crosshair, Star, X, Navigation, Store, Smartphone, Pill, LocateFixed } from 'lucide-react-native';
+import { useTranslation } from '../utils/translations';
+
+const CATEGORY_ICONS = {
+  groceries: Store,
+  grocery: Store,
+  staples: Store,
+  electronics: Smartphone,
+  pharmacy: Pill,
+};
+
+const getShopIcon = (category) => CATEGORY_ICONS[(category || '').toLowerCase()] || Store;
+
+// react-native-maps' Android Marker snapshot never reliably captures an
+// <Image>'s content in this app — confirmed on-device across four distinct
+// approaches (remote URI, prefetched, base64 data-URI, and even a locally
+// bundled require()'d asset with no network involved at all): every one
+// rendered blank. The common thread across all of them is <Image> itself;
+// Text and SVG icons both render correctly and instantly. That points to a
+// Fabric (New Architecture) incompatibility in how react-native-maps
+// snapshots Image content specifically, not an async-loading problem — so
+// pins use a vector icon instead, which has no such issue.
+const ShopMapMarker = ({ shop, onPress }) => {
+  const imageUrl = shop.banner_url || shop.image_url || 'https://images.unsplash.com/photo-1578916171728-46686eac8d58?w=200';
+  const ShopIcon = getShopIcon(shop.category);
+
+  return (
+    <Marker
+      coordinate={{
+        latitude: parseFloat(shop.latitude),
+        longitude: parseFloat(shop.longitude),
+      }}
+      onPress={onPress}
+      tracksViewChanges={true}
+    >
+      <View style={styles.shopMarkerContainer} collapsable={false}>
+        <View style={styles.shopMarkerBubble} collapsable={false}>
+          {/* Fallback Icon inside the bubble */}
+          <ShopIcon color={theme.colors.primary} size={20} strokeWidth={2.2} style={{ position: 'absolute' }} />
+          
+          {/* SVG Circular Cropped Image */}
+          <Svg width={43} height={43} viewBox="0 0 100 100">
+            <Defs>
+              <ClipPath id={`clip-${shop.id}`}>
+                <Circle cx="50" cy="50" r="50" />
+              </ClipPath>
+            </Defs>
+            <SvgImage
+              x="0"
+              y="0"
+              width="100"
+              height="100"
+              preserveAspectRatio="xMidYMid slice"
+              href={{ uri: imageUrl }}
+              clipPath={`url(#clip-${shop.id})`}
+            />
+          </Svg>
+        </View>
+        <View style={styles.shopMarkerPinPoint} collapsable={false} />
+      </View>
+    </Marker>
+  );
+};
+
+const categoryImages = {
+  'All': 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=100&q=80',
+  'Groceries': 'https://images.unsplash.com/photo-1542838132-92c53300491e?w=100&q=80',
+  'Electronics': 'https://images.unsplash.com/photo-1588508065123-287b28e013da?w=100&q=80',
+  'Pharmacy': 'https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=100&q=80',
+};
+
+const getCategoryExploreImage = (cat) => {
+  return categoryImages[cat] || 'https://images.unsplash.com/photo-1441986300917-64674bd600d8?w=100&q=80';
+};
 
 export const ExploreScreen = () => {
   const navigation = useNavigation();
   const mapRef = useRef(null);
+  const t = useTranslation();
 
   const [region, setRegion] = useState(null);
+  const [userLocation, setUserLocation] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [selectedDistance, setSelectedDistance] = useState(5);
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [showCategories, setShowCategories] = useState(false);
   const [selectedShop, setSelectedShop] = useState(null);
-  const distances = [2, 5, 10, 20];
 
   const [locationStatus, setLocationStatus] = useState('loading');
 
@@ -27,9 +102,13 @@ export const ExploreScreen = () => {
     setLocationStatus('loading');
     try {
       const loc = await ensureLocationReady();
-      setRegion({
+      const coords = {
         latitude: loc.latitude,
         longitude: loc.longitude,
+      };
+      setUserLocation(coords);
+      setRegion({
+        ...coords,
         latitudeDelta: 0.05,
         longitudeDelta: 0.05,
       });
@@ -57,6 +136,17 @@ export const ExploreScreen = () => {
     enabled: !!region
   });
 
+  // 3. Fetch Nearby Products
+  const { data: nearbyProducts } = useQuery({
+    queryKey: ['exploreProducts', region?.latitude, region?.longitude, selectedDistance],
+    queryFn: async () => {
+      if (!region) return [];
+      const res = await axiosClient.get(`/shops/nearby-products?lat=${region.latitude}&lng=${region.longitude}&category=All`);
+      return res.data.products || [];
+    },
+    enabled: !!region
+  });
+
   const filteredShops = useMemo(() => {
     if (!nearbyShops) return [];
     
@@ -67,16 +157,38 @@ export const ExploreScreen = () => {
     }
     
     if (searchQuery.trim()) {
-      const lowerQuery = searchQuery.toLowerCase();
-      result = result.filter(shop => {
+      const lowerQuery = searchQuery.toLowerCase().trim();
+      
+      // 1. Direct shop name or category matches
+      const directShopMatches = result.filter(shop => {
         const matchName = shop.name && shop.name.toLowerCase().includes(lowerQuery);
         const matchCategory = shop.category && shop.category.toLowerCase().includes(lowerQuery);
         return matchName || matchCategory;
       });
+
+      // 2. Matching products
+      const matchingProducts = (nearbyProducts || []).filter(p =>
+        (p.name && p.name.toLowerCase().includes(lowerQuery)) ||
+        (p.description && p.description.toLowerCase().includes(lowerQuery)) ||
+        (p.category && p.category.toLowerCase().includes(lowerQuery))
+      );
+
+      // 3. Shops selling matching products
+      const matchingProductShopIds = matchingProducts.map(p => p.shop_id);
+      const productMatchingShops = result.filter(shop => matchingProductShopIds.includes(shop.id));
+
+      // Combine unique shops
+      const combinedMatchesMap = new Map();
+      [...directShopMatches, ...productMatchingShops].forEach(s => {
+        if (!combinedMatchesMap.has(s.id)) {
+          combinedMatchesMap.set(s.id, s);
+        }
+      });
+      result = Array.from(combinedMatchesMap.values());
     }
     
     return result;
-  }, [nearbyShops, searchQuery, selectedCategory]);
+  }, [nearbyShops, nearbyProducts, searchQuery, selectedCategory]);
 
   const availableCategories = useMemo(() => {
     if (!nearbyShops) return ['All'];
@@ -85,44 +197,77 @@ export const ExploreScreen = () => {
 
   const suggestions = useMemo(() => {
     if (!nearbyShops || !searchQuery.trim()) return [];
-    const lowerQuery = searchQuery.toLowerCase();
+    const lowerQuery = searchQuery.toLowerCase().trim();
     
-    const matches = new Set();
+    const list = [];
+    const seenNames = new Set();
+    
+    // 1. Direct shop name matches
     nearbyShops.forEach(shop => {
-      if (shop.name && shop.name.toLowerCase().includes(lowerQuery)) {
-        matches.add(shop.name);
-      }
-      if (shop.category && shop.category.toLowerCase().includes(lowerQuery)) {
-        matches.add(shop.category);
+      if (shop.name && shop.name.toLowerCase().includes(lowerQuery) && !seenNames.has(shop.name)) {
+        seenNames.add(shop.name);
+        list.push({
+          text: shop.name,
+          image: shop.banner_url || shop.image_url || 'https://images.unsplash.com/photo-1578916171728-46686eac8d58?w=200',
+          type: 'shop'
+        });
       }
     });
-    return Array.from(matches).slice(0, 5);
-  }, [nearbyShops, searchQuery]);
+
+    // 2. Direct category matches
+    nearbyShops.forEach(shop => {
+      if (shop.category && shop.category.toLowerCase().includes(lowerQuery) && !seenNames.has(shop.category)) {
+        seenNames.add(shop.category);
+        list.push({
+          text: shop.category,
+          image: getCategoryExploreImage(shop.category),
+          type: 'category'
+        });
+      }
+    });
+
+    // 3. Direct product name matches
+    (nearbyProducts || []).forEach(p => {
+      if (p.name && p.name.toLowerCase().includes(lowerQuery) && !seenNames.has(p.name)) {
+        seenNames.add(p.name);
+        list.push({
+          text: p.name,
+          image: p.image_url || 'https://via.placeholder.com/60',
+          type: 'product'
+        });
+      }
+    });
+
+    return list.slice(0, 5);
+  }, [nearbyShops, nearbyProducts, searchQuery]);
 
   const centerOnUser = async () => {
     try {
       const loc = await ensureLocationReady();
-      setRegion(prev => ({...prev, latitude: loc.latitude, longitude: loc.longitude}));
+      const newRegion = {
+        latitude: loc.latitude,
+        longitude: loc.longitude,
+        latitudeDelta: 0.03,
+        longitudeDelta: 0.03,
+      };
+      setRegion(newRegion);
       if (mapRef.current) {
-        mapRef.current.flyTo({
-          center: [loc.longitude, loc.latitude],
-          zoom: 15,
-          duration: 1000
-        });
+        mapRef.current.animateToRegion(newRegion, 1000);
       }
     } catch (err) {
-      // The helper already shows alerts, so no additional alert needed
+      // The helper already shows alerts
     }
   };
 
   const handleMarkerPress = (shop) => {
     setSelectedShop(shop);
-    if (mapRef.current) {
-      mapRef.current.flyTo({
-        center: [parseFloat(shop.longitude), parseFloat(shop.latitude)],
-        zoom: 16,
-        duration: 500
-      });
+    if (mapRef.current && shop.latitude && shop.longitude) {
+      mapRef.current.animateToRegion({
+        latitude: parseFloat(shop.latitude),
+        longitude: parseFloat(shop.longitude),
+        latitudeDelta: 0.01,
+        longitudeDelta: 0.01,
+      }, 500);
     }
   };
 
@@ -143,85 +288,41 @@ export const ExploreScreen = () => {
   if (!region) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#006B54" />
+        <ActivityIndicator size="large" color={theme.colors.primary} />
       </View>
     );
   }
 
-  // Custom marker component to replicate the teardrop with icon
-  const CustomMarker = ({ shop, isPrimary }) => {
-    return (
-      <View style={styles.markerContainer}>
-        <View style={[styles.markerBubble, { backgroundColor: isPrimary ? '#006B54' : '#57E298' }]}>
-          {isPrimary ? (
-            <Store color="#FFF" size={16} />
-          ) : (
-            <MapPin color={isPrimary ? '#FFF' : '#006B54'} size={16} />
-          )}
-        </View>
-        <View style={[styles.markerTail, { borderTopColor: isPrimary ? '#006B54' : '#57E298' }]} />
-      </View>
-    );
-  };
-
   return (
     <View style={styles.container}>
-      <Map
+      <MapView
+        ref={mapRef}
+        provider={PROVIDER_GOOGLE}
         style={styles.map}
-        mapStyle="https://basemaps.cartocdn.com/gl/positron-gl-style/style.json"
-        logoEnabled={false}
-        attributionEnabled={false}
-        androidView="surface"
+        initialRegion={region}
+        showsUserLocation={Platform.OS === 'ios'}
+        showsMyLocationButton={false}
+        showsCompass={false}
       >
-        <Camera
-          ref={mapRef}
-          initialViewState={{
-            center: [region.longitude, region.latitude],
-            zoom: 15,
-          }}
-        />
-        <UserLocation visible={true} />
-        {filteredShops?.map((shop, index) => {
-          const isPrimary = index % 2 === 0;
-          return (
-            <Marker
-              key={shop.id.toString()}
-              id={`shop-${shop.id}`}
-              lngLat={[parseFloat(shop.longitude), parseFloat(shop.latitude)]}
-              onPress={() => handleMarkerPress(shop)}
-            >
-              <View style={[
-                styles.markerBubble, 
-                { backgroundColor: isPrimary ? '#006B54' : '#57E298', elevation: 5, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 3.84 }
-              ]}>
-                {isPrimary ? (
-                  <Store color="#FFF" size={16} />
-                ) : (
-                  <MapPin color={isPrimary ? '#FFF' : '#006B54'} size={16} />
-                )}
-              </View>
-            </Marker>
-          );
-        })}
-
-        {/* Custom User Location Marker on top of everything */}
-        <Marker
-          id="user-location"
-          lngLat={[region.longitude, region.latitude]}
-        >
-          <View style={{
-            width: 28, height: 28, borderRadius: 14, 
-            backgroundColor: 'rgba(42, 132, 255, 0.3)', 
-            alignItems: 'center', justifyContent: 'center'
-          }}>
-            <View style={{
-              width: 14, height: 14, borderRadius: 7, 
-              backgroundColor: '#2A84FF', borderWidth: 2, borderColor: '#FFF',
-              shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 2
-            }} />
-          </View>
-        </Marker>
-      </Map>
+        {Platform.OS === 'android' && userLocation && (
+          <Marker
+            coordinate={userLocation}
+            anchor={{ x: 0.5, y: 0.5 }}
+            tracksViewChanges={false}
+          >
+            <View style={styles.userLocationDotOuter}>
+              <View style={styles.userLocationDotInner} />
+            </View>
+          </Marker>
+        )}
+        {filteredShops?.map((shop) => (
+          <ShopMapMarker
+            key={shop.id.toString()}
+            shop={shop}
+            onPress={() => handleMarkerPress(shop)}
+          />
+        ))}
+      </MapView>
 
       {/* Floating Header */}
       <SafeAreaView style={styles.floatingHeaderSafeArea}>
@@ -231,7 +332,7 @@ export const ExploreScreen = () => {
               <Search color="#666" size={20} style={{marginRight: 10}} />
               <TextInput 
                 style={styles.searchInput}
-                placeholder="Search for shops or pro"
+                placeholder={t('searchPlaceholderExplore')}
                 placeholderTextColor="#999"
                 value={searchQuery}
                 onChangeText={(text) => {
@@ -251,22 +352,29 @@ export const ExploreScreen = () => {
                     key={index} 
                     style={styles.suggestionItem}
                     onPress={() => {
-                      setSearchQuery(suggestion);
+                      setSearchQuery(suggestion.text);
                       setIsSearchFocused(false);
                     }}
                   >
-                    <Search color="#999" size={16} style={{marginRight: 12}} />
-                    <Text style={styles.suggestionText}>{suggestion}</Text>
+                    {suggestion.image ? (
+                      <Image 
+                        source={{ uri: suggestion.image }} 
+                        style={styles.suggestionImage} 
+                      />
+                    ) : (
+                      <Search color="#999" size={16} style={{marginRight: 12}} />
+                    )}
+                    <Text style={styles.suggestionText}>{suggestion.text}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
             )}
           </View>
           <TouchableOpacity 
-            style={[styles.filterBtn, showCategories && { backgroundColor: '#006B54' }]} 
+            style={[styles.filterBtn, showCategories && { backgroundColor: theme.colors.primary }]} 
             onPress={() => setShowCategories(!showCategories)}
           >
-            <LayoutGrid color={showCategories ? "#FFF" : "#006B54"} size={20} />
+            <LayoutGrid color={showCategories ? "#FFF" : theme.colors.primary} size={20} />
           </TouchableOpacity>
         </View>
 
@@ -274,42 +382,32 @@ export const ExploreScreen = () => {
         {showCategories && (
           <View style={[styles.distanceSelectorContainer, { marginBottom: 8 }]}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.distanceScroll}>
-              {availableCategories.map(cat => (
-                <TouchableOpacity 
-                  key={cat} 
-                  style={[styles.distanceChip, selectedCategory === cat && styles.distanceChipSelected]}
-                  onPress={() => setSelectedCategory(cat)}
-                >
-                  <Text style={[styles.distanceChipText, selectedCategory === cat && styles.distanceChipTextSelected]}>
-                    {cat}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+              {availableCategories.map(cat => {
+                const isSelected = selectedCategory === cat;
+                return (
+                  <TouchableOpacity 
+                    key={cat} 
+                    style={[styles.categoryExploreChip, isSelected && styles.categoryExploreChipSelected]}
+                    onPress={() => setSelectedCategory(cat)}
+                    activeOpacity={0.8}
+                  >
+                    <Image source={{ uri: getCategoryExploreImage(cat) }} style={styles.categoryExploreChipImage} />
+                    <Text style={[styles.categoryExploreChipText, isSelected && styles.categoryExploreChipTextSelected]}>
+                      {cat}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </ScrollView>
           </View>
         )}
 
-        {/* Distance Selector Chips */}
-        <View style={styles.distanceSelectorContainer}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.distanceScroll}>
-            {distances.map(dist => (
-              <TouchableOpacity 
-                key={dist} 
-                style={[styles.distanceChip, selectedDistance === dist && styles.distanceChipSelected]}
-                onPress={() => setSelectedDistance(dist)}
-              >
-                <Text style={[styles.distanceChipText, selectedDistance === dist && styles.distanceChipTextSelected]}>
-                  {dist} km
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
+
       </SafeAreaView>
 
       {/* GPS Button */}
       <TouchableOpacity style={[styles.gpsBtn, selectedShop ? { bottom: 180 } : {}]} onPress={centerOnUser}>
-        <Crosshair color="#006B54" size={24} />
+        <LocateFixed color={theme.colors.primary} size={24} />
       </TouchableOpacity>
 
       {/* Shop Popup Card */}
@@ -409,6 +507,13 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: '#333',
   },
+  suggestionImage: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    marginRight: 12,
+    backgroundColor: '#F1F5F9',
+  },
   filterBtn: {
     width: 52,
     height: 52,
@@ -432,30 +537,6 @@ const styles = StyleSheet.create({
     ...theme.shadows.medium,
     zIndex: 10,
   },
-  markerContainer: {
-    alignItems: 'center',
-  },
-  markerBubble: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...theme.shadows.soft,
-  },
-  markerTail: {
-    width: 0,
-    height: 0,
-    backgroundColor: 'transparent',
-    borderStyle: 'solid',
-    borderLeftWidth: 6,
-    borderRightWidth: 6,
-    borderBottomWidth: 0,
-    borderTopWidth: 8,
-    borderLeftColor: 'transparent',
-    borderRightColor: 'transparent',
-    marginTop: -1, // overlap slightly to avoid gap
-  },
   distanceSelectorContainer: {
     marginTop: 12,
   },
@@ -472,8 +553,8 @@ const styles = StyleSheet.create({
     borderColor: '#E0E0E0',
   },
   distanceChipSelected: {
-    backgroundColor: '#006B54',
-    borderColor: '#006B54',
+    backgroundColor: theme.colors.primary,
+    borderColor: theme.colors.primary,
   },
   distanceChipText: {
     fontSize: 14,
@@ -561,7 +642,7 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   fallbackContainer: {
-    backgroundColor: '#E8F5E9',
+    backgroundColor: '#ECFDF5',
     padding: 24,
     borderRadius: 16,
     alignItems: 'center',
@@ -570,7 +651,7 @@ const styles = StyleSheet.create({
   fallbackTitle: {
     ...theme.typography.title,
     fontSize: 20,
-    color: '#006B54',
+    color: theme.colors.primary,
     marginBottom: 8,
   },
   fallbackText: {
@@ -580,7 +661,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   retryBtn: {
-    backgroundColor: '#006B54',
+    backgroundColor: theme.colors.primary,
     paddingHorizontal: 24,
     paddingVertical: 12,
     borderRadius: 24,
@@ -589,7 +670,94 @@ const styles = StyleSheet.create({
     color: '#FFF',
     fontWeight: 'bold',
     fontSize: 16,
-  }
+  },
+  shopMarkerContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  shopMarkerBubble: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 2.5,
+    borderColor: theme.colors.primary,
+    backgroundColor: '#FFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 6,
+  },
+  shopMarkerImage: {
+    width: 43,
+    height: 43,
+    borderRadius: 21.5,
+  },
+  shopMarkerPinPoint: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 6,
+    borderRightWidth: 6,
+    borderTopWidth: 7,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
+    borderTopColor: theme.colors.primary,
+    marginTop: -1,
+  },
+  categoryExploreChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FFF',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 20,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginRight: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  categoryExploreChipSelected: {
+    backgroundColor: theme.colors.primary,
+    borderColor: theme.colors.primary,
+  },
+  categoryExploreChipImage: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    marginRight: 6,
+    backgroundColor: '#E2E8F0',
+  },
+  categoryExploreChipText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  categoryExploreChipTextSelected: {
+    color: '#FFF',
+  },
+  userLocationDotOuter: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: 'rgba(59, 130, 246, 0.25)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  userLocationDotInner: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#3B82F6',
+    borderWidth: 1.5,
+    borderColor: '#FFF',
+  },
 });
 
 export default ExploreScreen;

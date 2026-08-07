@@ -3,9 +3,14 @@ import { View, Text, StyleSheet, TouchableOpacity, SafeAreaView, Platform, Statu
 import { useNavigation } from '@react-navigation/native';
 import { ArrowLeft, MessageSquare, Mail, Phone, ChevronRight } from 'lucide-react-native';
 import { theme } from '../theme';
+import { useTranslation } from '../utils/translations';
+
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export const HelpSupportScreen = () => {
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
+  const t = useTranslation();
 
   const faqs = [
     { question: 'Where is my order?', answer: 'You can track your order status in the Orders tab.' },
@@ -19,22 +24,26 @@ export const HelpSupportScreen = () => {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <ArrowLeft color="#1A1A1A" size={24} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Help & Support</Text>
+        <Text style={styles.headerTitle}>{t('helpSupportHeader')}</Text>
         <View style={{ width: 24 }} />
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        style={styles.content} 
+        contentContainerStyle={{ paddingBottom: Math.max(insets.bottom + 32, Platform.OS === 'android' ? 48 : 32) }}
+        showsVerticalScrollIndicator={false}
+      >
         
         <View style={styles.contactSection}>
-          <Text style={styles.sectionTitle}>Contact Us</Text>
+          <Text style={styles.sectionTitle}>{t('contactUs')}</Text>
           
           <TouchableOpacity style={styles.contactCard} onPress={() => {}}>
             <View style={[styles.iconBox, { backgroundColor: '#E3F2FD' }]}>
               <MessageSquare color="#1976D2" size={20} />
             </View>
             <View style={styles.contactInfo}>
-              <Text style={styles.contactTitle}>Live Chat</Text>
-              <Text style={styles.contactSub}>Typically replies in 5 mins</Text>
+              <Text style={styles.contactTitle}>{t('liveChat')}</Text>
+              <Text style={styles.contactSub}>{t('liveChatSub')}</Text>
             </View>
             <ChevronRight color={theme.colors.textLight} size={20} />
           </TouchableOpacity>
@@ -44,7 +53,7 @@ export const HelpSupportScreen = () => {
               <Mail color="#7B1FA2" size={20} />
             </View>
             <View style={styles.contactInfo}>
-              <Text style={styles.contactTitle}>Email Support</Text>
+              <Text style={styles.contactTitle}>{t('emailSupport')}</Text>
               <Text style={styles.contactSub}>support@localneighborhood.com</Text>
             </View>
             <ChevronRight color={theme.colors.textLight} size={20} />
@@ -55,15 +64,15 @@ export const HelpSupportScreen = () => {
               <Phone color="#388E3C" size={20} />
             </View>
             <View style={styles.contactInfo}>
-              <Text style={styles.contactTitle}>Call Us</Text>
-              <Text style={styles.contactSub}>Available 9AM - 8PM</Text>
+              <Text style={styles.contactTitle}>{t('callUs')}</Text>
+              <Text style={styles.contactSub}>{t('callUsSub')}</Text>
             </View>
             <ChevronRight color={theme.colors.textLight} size={20} />
           </TouchableOpacity>
         </View>
 
         <View style={styles.faqSection}>
-          <Text style={styles.sectionTitle}>Frequently Asked Questions</Text>
+          <Text style={styles.sectionTitle}>{t('faqTitle')}</Text>
           
           {faqs.map((faq, index) => (
             <View key={index} style={styles.faqCard}>

@@ -5,9 +5,12 @@ import axiosClient from '../api/axiosClient';
 import { theme } from '../theme';
 import { ChevronLeft, Book, ChevronRight, ChevronDown, Store } from 'lucide-react-native';
 import { useNavigation } from '@react-navigation/native';
+import { getCartItemTotal, getCartItemQuantityLabel } from '../utils/cartPricing';
+import { useTranslation } from '../utils/translations';
 
 export const KhataScreen = () => {
   const navigation = useNavigation();
+  const t = useTranslation();
   const [expandedShopId, setExpandedShopId] = React.useState(null);
 
   const { data, isLoading } = useQuery({
@@ -26,22 +29,27 @@ export const KhataScreen = () => {
     );
   }
 
-  const { khata, total_overall } = data || { khata: [], total_overall: 0 };
+  const { 
+    khata, 
+    total_overall_pending = 0, 
+    total_overall_paid = 0 
+  } = data || { khata: [], total_overall_pending: 0, total_overall_paid: 0 };
 
   const renderEmpty = () => (
     <View style={styles.emptyContainer}>
       <Book color={theme.colors.textLight} size={64} />
-      <Text style={styles.emptyTitle}>No Khata Records</Text>
-      <Text style={styles.emptySub}>You have no pending Udhar at any local shops.</Text>
+      <Text style={styles.emptyTitle}>{t('noKhataRecords')}</Text>
+      <Text style={styles.emptySub}>{t('noKhataSub')}</Text>
       <TouchableOpacity style={styles.shopBtn} onPress={() => navigation.navigate('MainTabs')}>
-        <Text style={styles.shopBtnText}>Start Shopping</Text>
+        <Text style={styles.shopBtnText}>{t('startShoppingBtn')}</Text>
       </TouchableOpacity>
     </View>
   );
 
   const renderItem = ({ item }) => {
     const isExpanded = expandedShopId === item.shop.id;
-    const allItems = item.transactions.flatMap(t => t.items || []);
+    const pendingCountNum = item.transactions.filter(t => t.status === 'pending').length;
+    const paidCountNum = item.transactions.filter(t => t.status === 'paid').length;
 
     return (
       <View style={styles.shopCardWrapper}>
@@ -56,15 +64,24 @@ export const KhataScreen = () => {
             </View>
             <View style={styles.shopDetails}>
               <Text style={styles.shopName} numberOfLines={1}>{item.shop.name}</Text>
-              <Text style={styles.shopSub}>{item.transactions.length} orders pending</Text>
+              <Text style={styles.shopSub}>
+                {t('pendingCount', { count: pendingCountNum })} • {t('paidCount', { count: paidCountNum })}
+              </Text>
             </View>
           </View>
           <View style={styles.amountBox}>
-            <Text style={styles.amountText}>₹{item.total_pending.toFixed(2)}</Text>
+            <View style={{ alignItems: 'flex-end', marginRight: 8 }}>
+              {item.total_pending > 0 && (
+                <Text style={styles.amountTextPending}>₹{item.total_pending.toFixed(2)}</Text>
+              )}
+              {item.total_paid > 0 && (
+                <Text style={styles.amountTextPaid}>{t('paidAmount', { amount: item.total_paid.toFixed(2) })}</Text>
+              )}
+            </View>
             {isExpanded ? (
-              <ChevronDown color={theme.colors.textLight} size={20} style={{ marginLeft: 4 }} />
+              <ChevronDown color={theme.colors.textLight} size={20} />
             ) : (
-              <ChevronRight color={theme.colors.textLight} size={20} style={{ marginLeft: 4 }} />
+              <ChevronRight color={theme.colors.textLight} size={20} />
             )}
           </View>
         </TouchableOpacity>
@@ -72,23 +89,66 @@ export const KhataScreen = () => {
         {isExpanded && (
           <View style={styles.expandedContent}>
             <View style={styles.divider} />
-            <Text style={styles.expandedTitle}>Purchased Items</Text>
-            {allItems.length > 0 ? allItems.map((product, idx) => (
-              <View key={idx} style={styles.productRow}>
-                <Text style={styles.productName} numberOfLines={1}>
-                  <Text style={styles.productQty}>{product.quantity}x</Text> {product.name}
+            
+            <Text style={styles.expandedTitle}>{t('transactionHistory')}</Text>
+            {item.transactions.map((tx, idx) => (
+              <View key={tx.id || idx} style={styles.transactionCard}>
+                <View style={styles.transactionHeader}>
+                  <Text style={styles.orderNumber}>{tx.orderNumber}</Text>
+                  <View style={[
+                    styles.statusPill, 
+                    tx.status === 'pending' ? styles.statusPillPending : styles.statusPillPaid
+                  ]}>
+                    <Text style={[
+                      styles.statusPillText, 
+                      tx.status === 'pending' ? styles.statusPillTextPending : styles.statusPillTextPaid
+                    ]}>
+                      {tx.status === 'pending' ? t('pendingStatus') : t('paidStatus')}
+                    </Text>
+                  </View>
+                </View>
+                
+                <Text style={styles.transactionDate}>
+                  {new Date(tx.date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })}
                 </Text>
-                <Text style={styles.productPrice}>₹{(product.price * product.quantity).toFixed(2)}</Text>
+                
+                <View style={styles.expandedItemsContainer}>
+                  {tx.items?.map((product, pIdx) => (
+                    <View key={pIdx} style={styles.productRowInline}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, marginRight: 12 }}>
+                        {product.image_url ? (
+                          <Image source={{ uri: product.image_url }} style={styles.productThumbnail} />
+                        ) : (
+                          <View style={[styles.productThumbnail, { backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center' }]}>
+                            <Book size={10} color="#64748B" />
+                          </View>
+                        )}
+                        <Text style={styles.productNameInline} numberOfLines={1}>
+                          {product.quantity}x {product.name}
+                        </Text>
+                      </View>
+                      <Text style={styles.productPriceInline}>₹{(product.price * product.quantity).toFixed(2)}</Text>
+                    </View>
+                  ))}
+                </View>
+
+                <View style={styles.transactionFooter}>
+                  <Text style={styles.totalLabel}>{t('totalAmountLabel')}</Text>
+                  <Text style={[
+                    styles.totalValue, 
+                    tx.status === 'pending' ? styles.totalValuePending : styles.totalValuePaid
+                  ]}>
+                    ₹{tx.amount.toFixed(2)}
+                  </Text>
+                </View>
               </View>
-            )) : (
-              <Text style={styles.noItemsText}>No items data available.</Text>
-            )}
+            ))}
             
             <TouchableOpacity 
               style={styles.visitShopBtnOutline}
               onPress={() => navigation.navigate('ShopStorefront', { id: item.shop.id })}
             >
-              <Text style={styles.visitShopTextOutline}>Visit Shop Storefront</Text>
+              <Text style={styles.visitShopTextOutline}>{t('visitShopStorefront')}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -103,15 +163,31 @@ export const KhataScreen = () => {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <ChevronLeft color={theme.colors.text} size={28} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>My Khata</Text>
+        <Text style={styles.headerTitle}>{t('myKhataHeader')}</Text>
         <View style={{ width: 40 }} />
       </View>
 
-      {/* Total Overview */}
+      {/* Total Overview Card */}
       <View style={styles.overviewCard}>
-        <Text style={styles.overviewLabel}>Total Outstanding Udhar</Text>
-        <Text style={styles.overviewAmount}>₹{total_overall.toFixed(2)}</Text>
-        <Text style={styles.overviewSub}>Please clear your dues with shopkeepers directly.</Text>
+        <Text style={styles.overviewLabel}>{t('myLedgerSummary')}</Text>
+        
+        <View style={styles.summaryGrid}>
+          {/* Column 1: Pending (Dena Baki) */}
+          <View style={styles.summaryCol}>
+            <Text style={styles.summaryColLabel}>{t('denaBaki')}</Text>
+            <Text style={styles.summaryAmountPending}>₹{total_overall_pending.toFixed(2)}</Text>
+          </View>
+          
+          <View style={styles.verticalDivider} />
+          
+          {/* Column 2: Paid (Jama Kiya) */}
+          <View style={styles.summaryCol}>
+            <Text style={styles.summaryColLabel}>{t('jamaKiya')}</Text>
+            <Text style={styles.summaryAmountPaid}>₹{total_overall_paid.toFixed(2)}</Text>
+          </View>
+        </View>
+
+        <Text style={styles.overviewSub}>{t('khataNotice')}</Text>
       </View>
 
       {/* List */}
@@ -178,6 +254,49 @@ const styles = StyleSheet.create({
     ...theme.typography.caption,
     color: theme.colors.textLight,
     textAlign: 'center',
+    marginTop: theme.spacing.s,
+  },
+  summaryGrid: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    width: '100%',
+    marginVertical: theme.spacing.m,
+  },
+  summaryCol: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  summaryColLabel: {
+    fontSize: 12,
+    color: theme.colors.textLight,
+    marginBottom: 4,
+  },
+  summaryAmountPending: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#EF4444', // Red for pending/dues
+  },
+  summaryAmountPaid: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: '#10B981', // Green for paid
+  },
+  verticalDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: theme.colors.border,
+  },
+  amountTextPending: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#EF4444',
+  },
+  amountTextPaid: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#10B981',
+    marginTop: 2,
   },
   listContent: {
     paddingBottom: theme.spacing.xxl,
@@ -230,11 +349,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  amountText: {
-    ...theme.typography.body,
-    fontWeight: 'bold',
-    color: theme.colors.error,
-  },
   emptyContainer: {
     alignItems: 'center',
     marginTop: 60,
@@ -275,32 +389,103 @@ const styles = StyleSheet.create({
   expandedTitle: {
     ...theme.typography.subtitle,
     fontSize: 14,
-    color: theme.colors.textLight,
-    marginBottom: theme.spacing.s,
+    color: theme.colors.text,
+    fontWeight: '700',
+    marginBottom: theme.spacing.m,
   },
-  productRow: {
+  transactionCard: {
+    backgroundColor: '#F8FAFC',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+  },
+  transactionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  orderNumber: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#334155',
+  },
+  statusPill: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 8,
+  },
+  statusPillPending: {
+    backgroundColor: '#FEE2E2',
+  },
+  statusPillPaid: {
+    backgroundColor: '#D1FAE5',
+  },
+  statusPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  statusPillTextPending: {
+    color: '#EF4444',
+  },
+  statusPillTextPaid: {
+    color: '#10B981',
+  },
+  transactionDate: {
+    fontSize: 11,
+    color: '#94A3B8',
+    marginBottom: 8,
+  },
+  expandedItemsContainer: {
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: '#F1F5F9',
+    paddingVertical: 6,
+    marginBottom: 8,
+  },
+  productRowInline: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingVertical: 3,
+  },
+  productThumbnail: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    marginRight: 8,
+    backgroundColor: '#F1F5F9',
+  },
+  productNameInline: {
+    fontSize: 13,
+    color: '#475569',
+    flex: 1,
+  },
+  productPriceInline: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#475569',
+  },
+  transactionFooter: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingVertical: 6,
   },
-  productQty: {
-    fontWeight: 'bold',
-    color: theme.colors.primary,
+  totalLabel: {
+    fontSize: 13,
+    color: '#64748B',
+    fontWeight: '500',
   },
-  productName: {
-    ...theme.typography.body,
-    flex: 1,
-    marginRight: theme.spacing.m,
+  totalValue: {
+    fontSize: 14,
+    fontWeight: '700',
   },
-  productPrice: {
-    ...theme.typography.body,
-    fontWeight: '600',
+  totalValuePending: {
+    color: '#EF4444',
   },
-  noItemsText: {
-    ...theme.typography.caption,
-    fontStyle: 'italic',
-    paddingVertical: 4,
+  totalValuePaid: {
+    color: '#10B981',
   },
   visitShopBtnOutline: {
     marginTop: theme.spacing.m,

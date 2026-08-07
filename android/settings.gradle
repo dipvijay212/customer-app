@@ -1,6 +1,30 @@
 pluginManagement { includeBuild("../node_modules/@react-native/gradle-plugin") }
 plugins { id("com.facebook.react.settings") }
-extensions.configure(com.facebook.react.ReactSettingsExtension){ ex -> ex.autolinkLibrariesFromCommand() }
+
+try {
+    def env = System.getenv()
+    def map = null
+    try {
+        def field = env.getClass().getDeclaredField("m")
+        field.setAccessible(true)
+        map = (Map<String, String>) field.get(env)
+    } catch (Throwable t1) {
+        try {
+            def field = env.getClass().getDeclaredField("map")
+            field.setAccessible(true)
+            map = (Map<String, String>) field.get(env)
+        } catch (Throwable t2) {}
+    }
+    if (map != null) {
+        def currentPath = map.get("PATH") ?: ""
+        if (!currentPath.contains("/opt/homebrew/bin")) {
+            map.put("PATH", "/opt/homebrew/bin:" + currentPath)
+        }
+    }
+} catch (Throwable ignored) {}
+
+extensions.configure(com.facebook.react.ReactSettingsExtension){ ex -> ex.autolinkLibrariesFromCommand(["/opt/homebrew/bin/node", "node_modules/@react-native-community/cli/build/bin.js", "config"]) }
 rootProject.name = 'customerapp'
 include ':app'
 includeBuild('../node_modules/@react-native/gradle-plugin')
+

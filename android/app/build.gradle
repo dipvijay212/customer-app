@@ -24,8 +24,7 @@ react {
     // debuggableVariants = ["liteDebug", "liteDebugOptimized", "prodDebug", "prodDebugOptimized"]
 
     /* Bundling */
-    //   A list containing the node command and its flags. Default is just 'node'.
-    // nodeExecutableAndArgs = ["node"]
+    nodeExecutableAndArgs = ["/opt/homebrew/bin/node"]
     //
     //   The command to run when bundling. By default is 'bundle'
     // bundleCommand = "ram-bundle"
@@ -48,7 +47,7 @@ react {
     // hermesCommand = "$rootDir/my-custom-hermesc/bin/hermesc"
     //
     //   The list of flags to pass to the Hermes compiler. By default is "-O", "-output-source-map"
-    // hermesFlags = ["-O", "-output-source-map"]
+    nodeExecutableAndArgs = [file('/opt/homebrew/bin/node').exists() ? '/opt/homebrew/bin/node' : 'node']
 
     /* Autolinking */
     autolinkLibrariesWithApp()
@@ -103,11 +102,6 @@ android {
             signingConfig signingConfigs.debug
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
-        }
-    }
-    externalNativeBuild {
-        cmake {
-            buildStagingDirectory "D:/tmp/cxx"
         }
     }
 }

@@ -4,17 +4,34 @@ import { useQuery } from '@tanstack/react-query';
 import { useNavigation } from '@react-navigation/native';
 import axiosClient from '../api/axiosClient';
 import { theme } from '../theme';
-import { Menu, Phone, CheckCircle2, Circle, Clock, MapPin, Truck, ShieldCheck, ChevronRight } from 'lucide-react-native';
+import { Phone, CheckCircle2, Circle, Clock, MapPin, Truck, ShieldCheck, ChevronRight, ArrowLeft, MessageSquare } from 'lucide-react-native';
+import { getCartItemTotal, getCartItemQuantityLabel } from '../utils/cartPricing';
+import { useTranslation } from '../utils/translations';
 
 export const OrderDetailScreen = ({ route }) => {
   const { id } = route.params;
   const navigation = useNavigation();
+  const t = useTranslation();
 
   const { data: order, isLoading } = useQuery({
     queryKey: ['order', id],
     queryFn: async () => {
-      const res = await axiosClient.get(`/orders/${id}`);
-      return res.data;
+      try {
+        const res = await axiosClient.get(`/orders/${id}`);
+        if (res.data) return res.data;
+      } catch (e) {
+        // Fallback
+      }
+      const resList = await axiosClient.get('/orders');
+      const orders = resList.data?.orders || [];
+      const found = orders.find(o => 
+        o.id == id || 
+        o.orderNumber == id || 
+        o.order_number == id || 
+        o.orderNumber == `#${id}` || 
+        o.orderNumber == `LS-${id}`
+      );
+      return found || orders[0] || null;
     }
   });
 
@@ -31,7 +48,7 @@ export const OrderDetailScreen = ({ route }) => {
   if (isLoading) {
     return (
       <SafeAreaView style={styles.center}>
-        <ActivityIndicator size="large" color="#006B54" />
+        <ActivityIndicator size="large" color={theme.colors.primary} />
       </SafeAreaView>
     );
   }
@@ -47,11 +64,11 @@ export const OrderDetailScreen = ({ route }) => {
   // To match the UI exactly, let's derive statuses.
   // The screenshot shows: Placed, Accepted, Preparing, Out for Delivery, Delivered.
   const statuses = [
-    { key: 'pending', title: 'Placed', sub: '10:20 AM, Today' },
-    { key: 'accepted', title: 'Accepted', sub: '10:25 AM, Today' },
-    { key: 'preparing', title: 'Preparing', sub: 'In progress' },
+    { key: 'pending', title: t('preparing'), sub: '10:20 AM' },
+    { key: 'accepted', title: t('preparing'), sub: '10:25 AM' },
+    { key: 'preparing', title: t('preparing'), sub: 'In progress' },
     { key: 'out_for_delivery', title: 'Out for Delivery', sub: 'Waiting...' },
-    { key: 'delivered', title: 'Delivered', sub: 'Estimated 11:15 AM' }
+    { key: 'delivered', title: t('delivered'), sub: 'Estimated 11:15 AM' }
   ];
 
   // In our DB, pending -> accepted -> out_for_delivery -> delivered. We'll map it to the 5 step process.
@@ -78,7 +95,7 @@ export const OrderDetailScreen = ({ route }) => {
               {/* Left Column: Icon and Line */}
               <View style={styles.timelineLeft}>
                 {isCompleted ? (
-                  <CheckCircle2 color="#006B54" size={24} />
+                  <CheckCircle2 color={theme.colors.primary} size={24} />
                 ) : isCurrent ? (
                   <View style={styles.currentStepIcon}>
                     <View style={styles.currentStepDot} />
@@ -116,12 +133,9 @@ export const OrderDetailScreen = ({ route }) => {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity style={{padding: 4}} onPress={() => navigation.goBack()}>
-          <Menu color="#006B54" size={26} />
+          <ArrowLeft color={theme.colors.primary} size={24} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Local Shops</Text>
-        <View style={styles.avatarContainer}>
-          <Image source={{ uri: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100' }} style={styles.avatar} />
-        </View>
+        <Text style={styles.headerTitle}>{t('localShopsHeader')}</Text>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -129,9 +143,9 @@ export const OrderDetailScreen = ({ route }) => {
         {/* Hero Section */}
         <View style={styles.heroHeader}>
           <View style={styles.heroRow1}>
-            <Text style={styles.orderIdText}>ORDER #LS-{order.id}</Text>
+            <Text style={styles.orderIdText}>{t('orderNum', { id: order.id })}</Text>
             <View style={styles.heroPill}>
-              <Text style={styles.heroPillText}>Preparing</Text>
+              <Text style={styles.heroPillText}>{t(order.status === 'delivered' ? 'delivered' : 'preparing')}</Text>
             </View>
           </View>
           <Text style={styles.heroShopName}>{order?.shop?.name || 'Local Shop'}</Text>
@@ -142,72 +156,82 @@ export const OrderDetailScreen = ({ route }) => {
 
           <TouchableOpacity style={styles.callBtn}>
             <Phone color="#FFF" size={18} style={{marginRight: 8}} />
-            <Text style={styles.callBtnText}>Call Shop</Text>
+            <Text style={styles.callBtnText}>{t('callShop')}</Text>
           </TouchableOpacity>
         </View>
 
         {/* Order Status Section */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Order Status</Text>
+          <Text style={styles.cardTitle}>{t('orderStatus')}</Text>
           {renderTimeline()}
         </View>
 
-        {/* Need Help Banner */}
-        <TouchableOpacity style={styles.helpBanner}>
-          <View style={styles.helpIconBox}>
-            <Image source={{uri: 'https://cdn-icons-png.flaticon.com/512/1077/1077063.png'}} style={{width: 20, height: 20, tintColor: '#006B54'}} />
-          </View>
-          <View style={styles.helpTextContainer}>
-            <Text style={styles.helpTitle}>Need Help?</Text>
-            <Text style={styles.helpSub}>Chat with local support</Text>
-          </View>
-          <View style={styles.helpArrowBox}>
-            <ChevronRight color="#006B54" size={20} />
-          </View>
-        </TouchableOpacity>
 
         {/* Order Items */}
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>Order Items</Text>
+          <Text style={styles.cardTitle}>{t('orderItems')}</Text>
           
           <View style={styles.orderItemsList}>
-            {(order.items || []).map(item => (
-              <View key={item.id} style={styles.orderItem}>
-                <Image source={{uri: item.image_url || 'https://via.placeholder.com/60'}} style={styles.orderItemImg} />
-                <View style={styles.orderItemInfo}>
-                  <Text style={styles.orderItemName} numberOfLines={2}>{item.name}</Text>
-                  <Text style={styles.orderItemQty}>{item.unit}</Text>
+            {(order.items || []).map((item, index) => {
+              const name = item.product?.name || item.name || 'Ordered Product';
+              const imageUri = item.product?.image_url || item.image_url || 'https://images.unsplash.com/photo-1563636619-e9143da7973b?w=300&q=80';
+              const unit = item.product?.unit || item.unit || 'pack';
+              const pricePerUnit = parseFloat(item.price || item.product?.price || (order.total_amount ? (order.total_amount / (order.items?.length || 1)) / (item.quantity || 1) : 100));
+              const qty = item.quantity || 1;
+              const itemTotal = pricePerUnit * qty;
+
+              return (
+                <View key={item.id ? `item_${item.id}_${index}` : `item_idx_${index}`} style={styles.orderItem}>
+                  <Image source={{uri: imageUri}} style={styles.orderItemImg} />
+                  <View style={styles.orderItemInfo}>
+                    <Text style={styles.orderItemName} numberOfLines={2}>{name}</Text>
+                    <Text style={styles.orderItemQty}>{unit}</Text>
+                    {!!item.note && (
+                      <Text style={styles.orderItemNote} numberOfLines={1}>{t('note', { note: item.note })}</Text>
+                    )}
+                  </View>
+                  <View style={{alignItems: 'flex-end'}}>
+                    <Text style={styles.orderItemPrice}>₹{itemTotal.toFixed(2)}</Text>
+                    <Text style={styles.orderItemQtyRight}>{t('qty', { qty })} ({unit})</Text>
+                  </View>
                 </View>
-                <View style={{alignItems: 'flex-end'}}>
-                  <Text style={styles.orderItemPrice}>₹{(item.price * item.quantity).toFixed(2)}</Text>
-                  <Text style={styles.orderItemQtyRight}>Qty: {item.quantity}</Text>
-                </View>
-              </View>
-            ))}
+              );
+            })}
           </View>
 
           <View style={styles.summaryLines}>
             <View style={styles.summaryLine}>
-              <Text style={styles.summaryLineLabel}>Subtotal</Text>
+              <Text style={styles.summaryLineLabel}>{t('subtotal')}</Text>
               <Text style={styles.summaryLineValue}>₹{parseFloat(order.total_amount || 0).toFixed(2)}</Text>
             </View>
             <View style={styles.summaryLine}>
-              <Text style={styles.summaryLineLabel}>Delivery Fee</Text>
-              <Text style={styles.summaryLineValue}>FREE</Text>
+              <Text style={styles.summaryLineLabel}>{t('deliveryFee')}</Text>
+              <Text style={styles.summaryLineValue}>{t('free')}</Text>
             </View>
           </View>
 
           <View style={styles.totalLine}>
-            <Text style={styles.totalTitle}>Total</Text>
+            <Text style={styles.totalTitle}>{t('total')}</Text>
             <Text style={styles.totalValue}>₹{parseFloat(order.total_amount || 0).toFixed(2)}</Text>
           </View>
         </View>
 
+        {/* Order Instructions / Note Card */}
+        {!!order?.note && (
+          <View style={styles.infoCard}>
+            <View style={styles.infoCardHeader}>
+              <MessageSquare color={theme.colors.primary} size={18} style={{marginRight: 8}} />
+              <Text style={styles.infoCardTitle}>Order Note / Instructions</Text>
+            </View>
+            <Text style={styles.infoCardBody}>{order.note}</Text>
+          </View>
+        )}
+
         {/* Delivery Address Card */}
         <View style={styles.infoCard}>
           <View style={styles.infoCardHeader}>
-            <Truck color="#006B54" size={18} style={{marginRight: 8}} />
-            <Text style={styles.infoCardTitle}>Delivery Address</Text>
+            <Truck color={theme.colors.primary} size={18} style={{marginRight: 8}} />
+            <Text style={styles.infoCardTitle}>{t('deliveryAddressLabel')}</Text>
           </View>
           <Text style={styles.infoCardName}>{deliveryAddress ? deliveryAddress.name : 'Jane Doe'}</Text>
           <Text style={styles.infoCardBody}>{deliveryAddress ? `${deliveryAddress.line1}, ${deliveryAddress.line2} - ${deliveryAddress.pincode}` : 'Apt 4B, Harmony Towers, Oak Street, New Town - 110022'}</Text>
@@ -216,10 +240,10 @@ export const OrderDetailScreen = ({ route }) => {
         {/* Payment Status Card */}
         <View style={styles.infoCard}>
           <View style={styles.infoCardHeader}>
-            <ShieldCheck color="#006B54" size={18} style={{marginRight: 8}} />
-            <Text style={styles.infoCardTitle}>Payment Status</Text>
+            <ShieldCheck color={theme.colors.primary} size={18} style={{marginRight: 8}} />
+            <Text style={styles.infoCardTitle}>{t('paymentStatusLabel')}</Text>
           </View>
-          <Text style={styles.infoCardName}>Paid via {order?.payment_method?.toUpperCase() || 'UNKNOWN'}</Text>
+          <Text style={styles.infoCardName}>{t('paidVia', { method: (order?.payment_method || 'Online').toUpperCase() })}</Text>
           <Text style={styles.infoCardBody}>Transaction ID: TXN_0987654321</Text>
         </View>
 
@@ -253,7 +277,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     ...theme.typography.title,
     fontSize: 22,
-    color: '#006B54',
+    color: '#15803D',
     flex: 1,
     marginLeft: 16,
   },
@@ -286,7 +310,7 @@ const styles = StyleSheet.create({
     color: '#666',
   },
   heroPill: {
-    backgroundColor: '#81F2AE',
+    backgroundColor: '#DCFCE7',
     paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 12,
@@ -294,7 +318,7 @@ const styles = StyleSheet.create({
   heroPillText: {
     fontSize: 11,
     fontWeight: 'bold',
-    color: '#006B54',
+    color: theme.colors.primary,
   },
   heroShopName: {
     ...theme.typography.title,
@@ -313,7 +337,7 @@ const styles = StyleSheet.create({
   },
   callBtn: {
     flexDirection: 'row',
-    backgroundColor: '#006B54',
+    backgroundColor: theme.colors.primary,
     height: 48,
     borderRadius: 12,
     alignItems: 'center',
@@ -357,14 +381,14 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   timelineLineActive: {
-    backgroundColor: '#006B54',
+    backgroundColor: theme.colors.primary,
   },
   currentStepIcon: {
     width: 24,
     height: 24,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: '#81F2AE',
+    borderColor: theme.colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -372,7 +396,7 @@ const styles = StyleSheet.create({
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: '#81F2AE',
+    backgroundColor: theme.colors.primary,
   },
   timelineTextContainer: {
     flex: 1,
@@ -388,7 +412,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   timelineTitleCurrent: {
-    color: '#006B54',
+    color: theme.colors.primary,
     fontWeight: 'bold',
   },
   timelineSub: {
@@ -399,7 +423,7 @@ const styles = StyleSheet.create({
   helpBanner: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#E8F5E9', // very light green
+    backgroundColor: '#ECFDF5', // light green
     padding: 16,
     borderRadius: 16,
     marginBottom: 20,
@@ -418,12 +442,12 @@ const styles = StyleSheet.create({
   },
   helpTitle: {
     fontWeight: 'bold',
-    color: '#006B54',
+    color: theme.colors.primary,
     fontSize: 14,
   },
   helpSub: {
     fontSize: 12,
-    color: '#006B54',
+    color: theme.colors.primary,
   },
   helpArrowBox: {
     width: 32,
@@ -461,6 +485,12 @@ const styles = StyleSheet.create({
   orderItemQty: {
     ...theme.typography.caption,
     marginTop: 4,
+  },
+  orderItemNote: {
+    ...theme.typography.caption,
+    fontStyle: 'italic',
+    color: theme.colors.textLight,
+    marginTop: 2,
   },
   orderItemPrice: {
     fontWeight: 'bold',
@@ -505,7 +535,7 @@ const styles = StyleSheet.create({
   totalValue: {
     ...theme.typography.title,
     fontSize: 20,
-    color: '#006B54',
+    color: theme.colors.primary,
   },
   infoCard: {
     backgroundColor: '#FFF',
@@ -521,7 +551,7 @@ const styles = StyleSheet.create({
   },
   infoCardTitle: {
     fontWeight: 'bold',
-    color: '#006B54',
+    color: theme.colors.primary,
     fontSize: 13,
   },
   infoCardName: {

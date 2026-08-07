@@ -2,15 +2,20 @@ import React, { useState, useContext, useEffect } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, ActivityIndicator, KeyboardAvoidingView, Platform, SafeAreaView } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-aware-scroll-view';
 import { useRoute, useNavigation } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { theme } from '../../theme';
 import { authService } from '../../services/authService';
 import Toast from 'react-native-toast-message';
 import { AuthContext } from '../../context/AuthContext';
 import { MessageSquare, ArrowLeft } from 'lucide-react-native';
+import { useTranslation } from '../../utils/translations';
 
 export const VerifyOTPScreen = () => {
   const route = useRoute();
   const navigation = useNavigation();
+  const insets = useSafeAreaInsets();
+  const t = useTranslation();
+  const bottomPadding = Math.max(insets.bottom + 40, Platform.OS === 'android' ? 75 : 40);
   const { phone, isRegistration, profileData } = route.params || {};
   
   const { login } = useContext(AuthContext);
@@ -91,7 +96,7 @@ export const VerifyOTPScreen = () => {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <KeyboardAwareScrollView 
-          contentContainerStyle={styles.keyboardView}
+          contentContainerStyle={[styles.keyboardView, { paddingBottom: bottomPadding }]}
           enableOnAndroid={true}
           enableAutomaticScroll={true}
           keyboardShouldPersistTaps="handled"
@@ -104,12 +109,12 @@ export const VerifyOTPScreen = () => {
           <View style={styles.iconWrapper}>
             <MessageSquare color={theme.colors.primary} size={40} />
           </View>
-          <Text style={styles.title}>Verify OTP</Text>
-          <Text style={styles.subtitle}>Enter the 6-digit code sent to +91 {phone}</Text>
+          <Text style={styles.title}>{t('verifyOtpHeaderTitle')}</Text>
+          <Text style={styles.subtitle}>{t('verifyOtpSubtitle')} +91 {phone}</Text>
         </View>
         
         <View style={styles.card}>
-          <Text style={styles.inputLabel}>Security Code</Text>
+          <Text style={styles.inputLabel}>{t('otpPlaceholder')}</Text>
           
           <View style={styles.otpContainer}>
             {[0, 1, 2, 3, 4, 5].map((index) => (
@@ -137,16 +142,16 @@ export const VerifyOTPScreen = () => {
             {loading ? (
               <ActivityIndicator color={theme.colors.white} />
             ) : (
-              <Text style={styles.buttonText}>Verify & Login</Text>
+              <Text style={styles.buttonText}>{t('verifyContinueBtn')}</Text>
             )}
           </TouchableOpacity>
         </View>
 
         <View style={styles.footer}>
-          <Text style={styles.footerText}>Didn't receive the code? </Text>
+          <Text style={styles.footerText}>{t('didntReceiveOtp')} </Text>
           <TouchableOpacity onPress={handleResend} disabled={cooldown > 0}>
             <Text style={[styles.resendText, cooldown > 0 && styles.resendTextDisabled]}>
-              {cooldown > 0 ? `Resend in ${cooldown}s` : 'Resend OTP'}
+              {cooldown > 0 ? t('resendCooldownText', { cooldown }) : t('resendOtpBtn')}
             </Text>
           </TouchableOpacity>
         </View>
@@ -187,7 +192,7 @@ const styles = StyleSheet.create({
     width: 250,
     height: 250,
     borderRadius: 125,
-    backgroundColor: '#E8F5E9',
+    backgroundColor: '#DCFCE7',
     opacity: 0.5,
   },
   decoCircle2: {
@@ -197,7 +202,7 @@ const styles = StyleSheet.create({
     width: 200,
     height: 200,
     borderRadius: 100,
-    backgroundColor: '#E8F5E9',
+    backgroundColor: '#DCFCE7',
     opacity: 0.3,
   },
   header: {
@@ -209,7 +214,7 @@ const styles = StyleSheet.create({
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#E8F5E9',
+    backgroundColor: '#DCFCE7',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: theme.spacing.l,
@@ -244,15 +249,17 @@ const styles = StyleSheet.create({
   },
   otpContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: theme.spacing.s,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+    marginVertical: theme.spacing.m,
     position: 'relative',
   },
   otpBox: {
-    width: 45,
-    height: 55,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
+    width: 40,
+    height: 52,
+    borderWidth: 1.5,
+    borderColor: '#CBD5E1',
     borderRadius: 12,
     justifyContent: 'center',
     alignItems: 'center',
@@ -300,7 +307,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: theme.spacing.xl * 2,
+    marginTop: theme.spacing.xl * 1.5,
+    marginBottom: Platform.OS === 'android' ? 40 : 16,
   },
   footerText: {
     ...theme.typography.body,
